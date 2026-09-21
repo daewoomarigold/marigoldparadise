@@ -138,6 +138,10 @@ export default function TeacherDashboard() {
   // menu button) instead of a permanent left column, so the student cards
   // get the full width on an iPad — see teacher.css's .teacher-sidebar.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Which student's details modal (full growth status, display-tama picker,
+  // remove) is open, if any — moved off the cards themselves so a whole
+  // class's worth of them fits on screen without scrolling.
+  const [detailStudentId, setDetailStudentId] = useState(null);
   const [showNewClassForm, setShowNewClassForm] = useState(false);
   const [newClassName, setNewClassName] = useState('');
   const [csvPreview, setCsvPreview] = useState(null); // { className, students } once a CSV's been parsed, until confirmed/cancelled
@@ -165,6 +169,7 @@ export default function TeacherDashboard() {
   const { classes, students: allStudents, currentClassId } = store;
   const currentClass = classes.find((c) => c.id === currentClassId) ?? null;
   const students = allStudents.filter((s) => s.classId === currentClassId);
+  const detailStudent = students.find((s) => s.id === detailStudentId) ?? null;
   const filteredStudents = students.filter(
     (s) => !search || s.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -268,6 +273,7 @@ export default function TeacherDashboard() {
   async function removeStudent(student) {
     if (!confirm(`Remove ${student.name}? This cannot be undone.`)) return;
     await store.removeStudent(student.id);
+    setDetailStudentId(null);
     toast('Student removed');
   }
 
@@ -449,7 +455,10 @@ export default function TeacherDashboard() {
                 <div className="teacher-student-grid">
                   {filteredStudents.map((s) => (
                     <div className="teacher-student-card" key={s.id}>
-                      <div className="teacher-student-name">{s.name}</div>
+                      <button className="teacher-student-name" onClick={() => setDetailStudentId(s.id)} title="Details">
+                        <span className="teacher-student-name-text">{s.name}</span>
+                        <span className="teacher-student-more">⋯</span>
+                      </button>
                       <div className="teacher-confirmed-pts" title="Confirmed total — won't move until Distribute">
                         <img src={COIN_URL} alt="" className="teacher-coin-icon" />
                         {s.gotchiPts}
@@ -459,6 +468,7 @@ export default function TeacherDashboard() {
                           </span>
                         )}
                       </div>
+                      {/* No +10 — Taylor's being deliberately conservative with points. */}
                       <div className="teacher-pts-controls">
                         <button className="teacher-pts-btn minus" onClick={() => nudgePendingPts(s, -10)} title="-10">
                           −10
@@ -476,14 +486,8 @@ export default function TeacherDashboard() {
                         <button className="teacher-pts-btn plus" onClick={() => nudgePendingPts(s, 1)} title="+1">
                           +1
                         </button>
-                        <button className="teacher-pts-btn plus" onClick={() => nudgePendingPts(s, 10)} title="+10">
-                          +10
-                        </button>
                       </div>
-                      <GrowthStatus student={s} onSetDisplayTama={(tamaId) => store.setDisplayTama(s.id, tamaId)} />
-                      <button className="teacher-student-remove" onClick={() => removeStudent(s)}>
-                        ✕ Remove
-                      </button>
+                      <CompactGrowth student={s} />
                     </div>
                   ))}
                 </div>
@@ -587,6 +591,23 @@ export default function TeacherDashboard() {
         </div>
       )}
 
+      {detailStudent && (
+        <div className="teacher-modal-backdrop open" onClick={(e) => e.target === e.currentTarget && setDetailStudentId(null)}>
+          <div className="teacher-modal">
+            <div className="teacher-modal-title">{detailStudent.name}</div>
+            <GrowthStatus student={detailStudent} onSetDisplayTama={(tamaId) => store.setDisplayTama(detailStudent.id, tamaId)} />
+            <div className="teacher-modal-btns" style={{ justifyContent: 'space-between' }}>
+              <button className="teacher-student-remove" onClick={() => removeStudent(detailStudent)}>
+                ✕ Remove student
+              </button>
+              <button className="teacher-btn" onClick={() => setDetailStudentId(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div id="teacher-toast" className={toastMsg || store.error ? 'show' : ''}>
         {store.error ? `⚠ ${store.error}` : toastMsg}
       </div>
@@ -609,6 +630,24 @@ function LoadingScreen({ text }) {
       }}
     >
       {text}
+    </div>
+  );
+}
+
+// The one-line version of GrowthStatus shown on each card (stage/name +
+// meter) — everything else (display tama, picker) lives in the details modal.
+function CompactGrowth({ student }) {
+  const growth = student.growth ?? newStudentProgress();
+  const fraction = meterFraction(growth, student.lifetimePts ?? student.gotchiPts);
+  const { stage, name } = growth.currentTama;
+  return (
+    <div className="teacher-growth-status">
+      <div className="teacher-growth-label">
+        {stage} · {name}
+      </div>
+      <div className="teacher-growth-meter" title={`${Math.round(fraction * POINTS_PER_GROWTH)}/${POINTS_PER_GROWTH} pts to next stage`}>
+        <div className="teacher-growth-meter-fill" style={{ width: `${fraction * 100}%` }} />
+      </div>
     </div>
   );
 }
