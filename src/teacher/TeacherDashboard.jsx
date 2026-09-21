@@ -298,11 +298,14 @@ export default function TeacherDashboard() {
     setPendingPts(student.id, (student.pendingPts ?? 0) + delta);
   }
 
-  async function awardAll(sign) {
-    const amt = Math.max(1, Number(awardAmount) || 1) * sign;
-    if (sign > 0) playAddPoint();
-    await store.awardAllPendingPts(students, sign, awardAmount);
-    toast(sign > 0 ? `Queued ${amt} pts for everyone` : `Queued a ${Math.abs(amt)}-pt deduction for everyone`);
+  // Award-only — Taylor doesn't take points away, so there's no deduct
+  // counterpart (the store's awardAllPendingPts still takes a sign, it's
+  // just always +1 from here).
+  async function awardAll() {
+    const amt = Math.max(1, Number(awardAmount) || 1);
+    playAddPoint();
+    await store.awardAllPendingPts(students, 1, awardAmount);
+    toast(`Queued ${amt} pts for everyone`);
   }
 
   // "Tama Time" — applies every queued pendingPts at once (see
@@ -498,11 +501,8 @@ export default function TeacherDashboard() {
                     onChange={(e) => setAwardAmount(e.target.value)}
                   />
                   <label>pts</label>
-                  <button className="teacher-btn yellow" onClick={() => awardAll(1)}>
+                  <button className="teacher-btn yellow" onClick={awardAll}>
                     ★ Award
-                  </button>
-                  <button className="teacher-btn red" onClick={() => awardAll(-1)}>
-                    − Deduct
                   </button>
                   <div className="teacher-btn-flex" />
                   <button className="teacher-btn" onClick={() => setShowAwardBanner(false)}>
