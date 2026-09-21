@@ -72,8 +72,8 @@ Sprite sheets are Taylor's own (not the stock Tamagotchi Paradise art), based on
 ## Technical setup (see also `CLAUDE.md`)
 
 - React + Vite, deployed to GitHub Pages via GitHub Actions on every push to `main`
-- Repo: [github.com/daewoomarigold/margioldparadise](https://github.com/daewoomarigold/margioldparadise)
-- Live site: https://daewoomarigold.github.io/margioldparadise/
+- Repo: [github.com/daewoomarigold/marigoldparadise](https://github.com/daewoomarigold/marigoldparadise)
+- Live site: https://daewoomarigold.github.io/marigoldparadise/
 - Local development happens on Taylor's MacBook (Claude Code CLI installed locally, repo cloned, `gh` handles GitHub auth), this is where real commits and pushes happen
 - Database: now on a **new** Supabase project (the old one stayed paused/untouched — its schema was built for the old shop/timer pet system and doesn't fit this rewrite). Real-time sync and Google sign-in are both live. See `CLAUDE.md`'s Database section and `supabase/schema.sql` for the actual setup
 

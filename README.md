@@ -3,7 +3,7 @@
 A rewrite of the GotchiGarden webpage, built with React + Vite and deployed
 to GitHub Pages.
 
-Live site: https://daewoomarigold.github.io/margioldparadise/
+Live site: https://daewoomarigold.github.io/marigoldparadise/
 
 ## Local development
 

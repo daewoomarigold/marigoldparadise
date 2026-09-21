@@ -4,7 +4,7 @@ Read this at the start of every session working in this repo.
 
 ## What this project is
 
-GotchiGarden is a webpage Taylor built and uses. This repo (`margioldparadise`,
+GotchiGarden is a webpage Taylor built and uses. This repo (`marigoldparadise`,
 owned by `daewoomarigold` on GitHub) is a from-scratch rewrite/overhaul of an
 earlier version of the site.
 
@@ -20,10 +20,10 @@ earlier version of the site.
 
 ## Hosting / deployment
 
-- Hosted on GitHub Pages at `https://daewoomarigold.github.io/margioldparadise/`
+- Hosted on GitHub Pages at `https://daewoomarigold.github.io/marigoldparadise/`
 - Deploys automatically via `.github/workflows/deploy.yml` on every push to
   `main` (builds with Vite, publishes `dist/` through GitHub Pages)
-- `vite.config.js` sets `base: '/margioldparadise/'` to match the Pages URL —
+- `vite.config.js` sets `base: '/marigoldparadise/'` to match the Pages URL —
   if the repo is ever renamed, update this too
 - One manual one-time step (if not already done): in the repo's Settings →
   Pages, set Source to "GitHub Actions"

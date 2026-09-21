@@ -5,9 +5,9 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // Repo is served at https://daewoomarigold.github.io/margioldparadise/,
+  // Repo is served at https://daewoomarigold.github.io/marigoldparadise/,
   // so all built asset paths need this prefix.
-  base: '/margioldparadise/',
+  base: '/marigoldparadise/',
   build: {
     // Three real, separately-built pages — teacher.html/gotchigarden.html
     // were two separate static pages in the old repo, and this is that
