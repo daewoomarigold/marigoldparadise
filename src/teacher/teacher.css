@@ -468,14 +468,14 @@
   -webkit-tap-highlight-color: transparent;
 }
 .teacher-pts-btn.plus {
+  /* the one button that matters — takes the room the removed -10/-1/+10
+     freed, so it's a big, easy target */
+  flex: 2 1 0;
+  width: auto;
+  font-size: 18px;
   border-color: var(--green);
   color: var(--green);
   background: rgba(107, 255, 184, 0.08);
-}
-.teacher-pts-btn.minus {
-  border-color: var(--red);
-  color: var(--red);
-  background: rgba(255, 107, 107, 0.08);
 }
 .teacher-pts-btn:active {
   transform: scale(0.92);
@@ -488,7 +488,7 @@
   font-family: 'Press Start 2P', monospace;
   /* 16px+ also stops iOS Safari from zooming the page when this is focused */
   font-size: 16px;
-  width: 100%;
+  flex: 1 1 0;
   min-width: 0;
   height: 44px;
   text-align: center;

@@ -468,14 +468,8 @@ export default function TeacherDashboard() {
                           </span>
                         )}
                       </div>
-                      {/* No +10 — Taylor's being deliberately conservative with points. */}
+                      {/* Just +1 (and the input) — Taylor's deliberately conservative with points and doesn't take them away, so no +10/-1/-10. */}
                       <div className="teacher-pts-controls">
-                        <button className="teacher-pts-btn minus" onClick={() => nudgePendingPts(s, -10)} title="-10">
-                          −10
-                        </button>
-                        <button className="teacher-pts-btn minus" onClick={() => nudgePendingPts(s, -1)} title="-1">
-                          −1
-                        </button>
                         <input
                           className="teacher-pts-input"
                           type="number"
