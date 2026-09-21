@@ -22,7 +22,7 @@ import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { createRoamer, stepRoamer, stepAnim } from '../game/movement.js';
 import { getYBoundsForImage683 } from './terrain.js';
 import { resolveDisplayTama } from '../game/growth.js';
-import { playTap } from '../sound.js';
+import { playTap, playAddPoint } from '../sound.js';
 import { useAuth } from '../auth/useAuth.js';
 import { useClassroomStore } from '../data/useClassroomStore.js';
 import LoginScreen from '../auth/LoginScreen.jsx';
@@ -165,6 +165,32 @@ export default function IslandView() {
     document.addEventListener('click', onClick, { capture: true });
     return () => document.removeEventListener('click', onClick, { capture: true });
   }, []);
+
+  // Coin sound whenever points get ADDED to any student's pending bucket
+  // (from the dashboard, another tab, another device — it arrives here via
+  // the realtime subscription in useClassroomStore, same as everything
+  // else). Track each student's pendingPts as of the last change and
+  // compare: an increase plays the sound, a decrease doesn't (Distribute
+  // zeroes pending out, and its own reveal — StudentGrid.jsx's coin rain —
+  // plays its own sounds). Plays once per batch of changes, not once per
+  // student, so "Award All" is one coin sound rather than a stacked wall
+  // of them. Skips the very first run (nothing to compare against, would
+  // otherwise fire for whatever's already queued on load) and any student
+  // not seen before (a roster change, not points being added).
+  // Browsers only allow this once the page has had a click — see the
+  // "Click to enable sound" button.
+  const prevPendingRef = useRef(null); // Map<studentId, pendingPts> as of the last run, or null before the first
+  useEffect(() => {
+    const prevPending = prevPendingRef.current;
+    if (prevPending) {
+      const anyIncrease = students.some((s) => {
+        const prior = prevPending.get(s.id);
+        return prior != null && (s.pendingPts ?? 0) > prior;
+      });
+      if (anyIncrease) playAddPoint();
+    }
+    prevPendingRef.current = new Map(students.map((s) => [s.id, s.pendingPts ?? 0]));
+  }, [students]);
 
   // Keep roamer entries in sync with the current roster — add newly-added
   // students, drop removed ones — without resetting anyone already roaming
