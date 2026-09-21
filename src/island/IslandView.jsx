@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { spriteUrl, resolveAnimState } from '../game/spriteData.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
-import { createRoamer, stepRoamer, stepAnim } from '../game/movement.js';
+import { createRoamer, stepRoamer, stepAnim, EMOTE_FPS } from '../game/movement.js';
 import { getYBoundsForImage683 } from './terrain.js';
 import { resolveDisplayTama } from '../game/growth.js';
 import { playTap, playAddPoint } from '../sound.js';
@@ -216,6 +216,7 @@ export default function IslandView() {
   // import) — fine to capture once in the rAF effect's closure below even
   // though that effect only runs on mount ([] deps).
   const walk = resolveAnimState('walk_left');
+  const emoteStates = { happy: resolveAnimState('happy'), jump_happy: resolveAnimState('jump_happy') };
 
   useEffect(() => {
     let raf;
@@ -419,12 +420,21 @@ export default function IslandView() {
           // on the island until they've hatched.
           if (stage === 'egg') return null;
 
-          const bodyFrame = walk.body[roamer.animFrame % walk.body.length];
-          const eyesFrame = walk.eyes[roamer.animFrame % walk.eyes.length];
-          const mouthFrame = walk.mouth[roamer.animFrame % walk.mouth.length];
+          // Mid-emote (see movement.js): the happy/jump_happy state instead of
+          // the walk cycle. happy is one static pose; jump_happy alternates
+          // its frames at EMOTE_FPS from how long the emote's been running.
+          const anim = roamer.emote ? emoteStates[roamer.emote.kind] : walk;
+          const frameIdx = roamer.emote
+            ? roamer.emote.kind === 'jump_happy'
+              ? Math.floor(roamer.emote.elapsed * EMOTE_FPS)
+              : 0
+            : roamer.animFrame;
+          const bodyFrame = anim.body[frameIdx % anim.body.length];
+          const eyesFrame = anim.eyes[frameIdx % anim.eyes.length];
+          const mouthFrame = anim.mouth[frameIdx % anim.mouth.length];
           const faceOffset = {
-            x: walk.faceOffsetX[roamer.animFrame % walk.faceOffsetX.length],
-            y: walk.faceOffsetY[roamer.animFrame % walk.faceOffsetY.length],
+            x: anim.faceOffsetX[frameIdx % anim.faceOffsetX.length],
+            y: anim.faceOffsetY[frameIdx % anim.faceOffsetY.length],
           };
 
           return (
