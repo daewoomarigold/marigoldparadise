@@ -134,6 +134,10 @@ export default function TeacherDashboard() {
   const store = useClassroomStore(auth.session);
 
   const [search, setSearch] = useState('');
+  // The class list lives in a slide-out drawer (opened from the header's
+  // menu button) instead of a permanent left column, so the student cards
+  // get the full width on an iPad — see teacher.css's .teacher-sidebar.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewClassForm, setShowNewClassForm] = useState(false);
   const [newClassName, setNewClassName] = useState('');
   const [csvPreview, setCsvPreview] = useState(null); // { className, students } once a CSV's been parsed, until confirmed/cancelled
@@ -179,12 +183,14 @@ export default function TeacherDashboard() {
     setNewClassName('');
     setShowNewClassForm(false);
     setSearch('');
+    setSidebarOpen(false);
     toast(`Created ${name}`);
   }
 
   function selectClass(id) {
     store.selectClass(id);
     setSearch('');
+    setSidebarOpen(false);
   }
 
   async function deleteClass(cls) {
@@ -240,6 +246,7 @@ export default function TeacherDashboard() {
     await store.selectClass(result.classId);
     setCsvPreview(null);
     setSearch('');
+    setSidebarOpen(false);
     toast(`Imported ${name} with ${result.count} students`);
   }
 
@@ -308,18 +315,22 @@ export default function TeacherDashboard() {
   return (
     <div className="teacher-root">
       <header className="teacher-header">
+        <button className="teacher-menu-btn" onClick={() => setSidebarOpen((o) => !o)} aria-expanded={sidebarOpen}>
+          ☰ Classes
+        </button>
         <div className="teacher-logo">★ MARIGOLD CORE</div>
         <div className="teacher-hdr-sep" />
         <div className="teacher-hdr-class-label">{currentClass ? currentClass.name : 'No class selected'}</div>
         <div className="teacher-btn-flex" />
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginRight: 10 }}>{auth.session.user.email}</div>
+        <div className="teacher-hdr-email">{auth.session.user.email}</div>
         <button className="teacher-btn" onClick={auth.signOut}>
           Sign out
         </button>
       </header>
 
       <div className="teacher-main-layout">
-        <div className="teacher-sidebar">
+        {sidebarOpen && <div className="teacher-sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
+        <div className={`teacher-sidebar${sidebarOpen ? ' open' : ''}`}>
           <div className="teacher-sidebar-section">
             <div className="teacher-sidebar-head">Classes</div>
             {classes.map((cls) => (
@@ -450,10 +461,10 @@ export default function TeacherDashboard() {
                       </div>
                       <div className="teacher-pts-controls">
                         <button className="teacher-pts-btn minus" onClick={() => nudgePendingPts(s, -10)} title="-10">
-                          −
+                          −10
                         </button>
-                        <button className="teacher-pts-btn minus" style={{ fontSize: 8 }} onClick={() => nudgePendingPts(s, -1)} title="-1">
-                          -1
+                        <button className="teacher-pts-btn minus" onClick={() => nudgePendingPts(s, -1)} title="-1">
+                          −1
                         </button>
                         <input
                           className="teacher-pts-input"
@@ -462,16 +473,11 @@ export default function TeacherDashboard() {
                           onChange={(e) => setPendingPts(s.id, e.target.value)}
                           title="Pending — queued until Distribute"
                         />
-                        <button
-                          className="teacher-pts-btn plus"
-                          style={{ fontSize: 8, borderColor: 'var(--green)', color: 'var(--green)' }}
-                          onClick={() => nudgePendingPts(s, 1)}
-                          title="+1"
-                        >
+                        <button className="teacher-pts-btn plus" onClick={() => nudgePendingPts(s, 1)} title="+1">
                           +1
                         </button>
                         <button className="teacher-pts-btn plus" onClick={() => nudgePendingPts(s, 10)} title="+10">
-                          +
+                          +10
                         </button>
                       </div>
                       <GrowthStatus student={s} onSetDisplayTama={(tamaId) => store.setDisplayTama(s.id, tamaId)} />

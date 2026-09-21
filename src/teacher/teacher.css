@@ -53,6 +53,22 @@
   color: var(--muted);
   letter-spacing: 1px;
   text-transform: uppercase;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.teacher-hdr-email {
+  font-size: 10px;
+  color: var(--muted);
+  margin-right: 10px;
+}
+/* iPad portrait and narrower — the header's short on room, and the email is
+   the least useful thing in it. */
+@media (max-width: 860px) {
+  .teacher-hdr-email {
+    display: none;
+  }
 }
 
 .teacher-main-layout {
@@ -61,15 +77,52 @@
   min-height: 0;
 }
 
-/* Sidebar */
+/* Sidebar — a slide-out drawer (opened from the header's menu button)
+   rather than a permanent column, so the student cards get the full width
+   on an iPad. Fixed below the 48px header; the backdrop closes it on tap. */
 .teacher-sidebar {
-  width: 220px;
+  position: fixed;
+  top: 48px;
+  bottom: 0;
+  left: 0;
+  width: 280px;
+  max-width: 85vw;
+  z-index: 150;
   background: var(--surface);
   border-right: 1px solid var(--border2);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
   overflow-y: auto;
+  transform: translateX(-100%);
+  transition: transform 0.22s ease;
+  box-shadow: none;
+}
+.teacher-sidebar.open {
+  transform: translateX(0);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+}
+.teacher-sidebar-backdrop {
+  position: fixed;
+  inset: 48px 0 0 0;
+  z-index: 140;
+  background: rgba(10, 4, 20, 0.55);
+}
+.teacher-menu-btn {
+  background: none;
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+.teacher-menu-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
 }
 .teacher-sidebar-section {
   padding: 12px 14px;
@@ -317,7 +370,7 @@
 
 .teacher-student-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 10px;
   padding: 16px;
   overflow-y: auto;
@@ -342,43 +395,57 @@
 .teacher-pts-controls {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
+/* 44px is Apple's minimum comfortable touch target — these are the buttons
+   Taylor taps constantly during a lesson on an iPad, so they're sized for a
+   finger, tinted so + and - read at a glance without hover, and give
+   pressed feedback (touch has no hover). */
 .teacher-pts-btn {
   background: none;
   border: 1px solid var(--border);
   color: var(--muted);
   font-family: inherit;
-  font-size: 10px;
-  width: 22px;
-  height: 22px;
-  border-radius: 3px;
+  font-size: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.1s;
   flex-shrink: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
-.teacher-pts-btn.plus:hover {
+.teacher-pts-btn.plus {
   border-color: var(--green);
   color: var(--green);
+  background: rgba(107, 255, 184, 0.08);
 }
-.teacher-pts-btn.minus:hover {
+.teacher-pts-btn.minus {
   border-color: var(--red);
   color: var(--red);
+  background: rgba(255, 107, 107, 0.08);
+}
+.teacher-pts-btn:active {
+  transform: scale(0.92);
+  background: rgba(255, 255, 255, 0.14);
 }
 .teacher-pts-input {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--yellow);
   font-family: 'Press Start 2P', monospace;
-  font-size: 0.65rem;
+  /* 16px+ also stops iOS Safari from zooming the page when this is focused */
+  font-size: 16px;
   width: 100%;
   min-width: 0;
+  height: 44px;
   text-align: center;
   padding: 2px 4px;
-  border-radius: 3px;
+  border-radius: 8px;
   outline: none;
 }
 .teacher-pts-input:focus {
@@ -584,4 +651,32 @@
 #teacher-toast.show {
   transform: translateX(-50%) translateY(0);
   opacity: 1;
+}
+
+/* Touch devices (iPad): bring the other everyday controls up to a
+   comfortable tap size too, and keep iOS from zooming into small inputs. */
+@media (pointer: coarse) {
+  .teacher-btn,
+  .teacher-class-btn,
+  .teacher-btn-new-class,
+  .teacher-student-remove {
+    min-height: 44px;
+  }
+  .teacher-class-delete-btn {
+    min-width: 44px;
+  }
+  .teacher-menu-btn {
+    height: 44px;
+  }
+  .teacher-root input,
+  .teacher-root select {
+    font-size: 16px;
+  }
+  .teacher-btn,
+  .teacher-class-btn,
+  .teacher-class-delete-btn,
+  .teacher-btn-new-class,
+  .teacher-student-remove {
+    touch-action: manipulation;
+  }
 }
