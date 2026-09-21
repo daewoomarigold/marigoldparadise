@@ -35,6 +35,21 @@ const CANVAS_H = 512;
 const SCALE = 1; // mini sprites are 32x32 native; this is their on-screen size multiplier
 const SPRITE_PX = 32 * SCALE;
 
+// Page zoom (see the `zoom` state in IslandView) — 25% steps, remembered
+// per browser.
+const ZOOM_KEY = 'marigold-island-zoom';
+const ZOOM_MIN = 0.75;
+const ZOOM_MAX = 2.5;
+const ZOOM_STEP = 0.25;
+function loadZoom() {
+  try {
+    const saved = Number(localStorage.getItem(ZOOM_KEY));
+    return saved >= ZOOM_MIN && saved <= ZOOM_MAX ? saved : 1;
+  } catch {
+    return 1; // storage blocked — default scale
+  }
+}
+
 // Class switcher — lets the island itself change which class is active
 // (currentClassId, via useClassroomStore's selectClass) instead of
 // requiring the teacher dashboard's sidebar for that.
@@ -53,6 +68,18 @@ const classBtnStyle = {
   padding: '6px 12px',
   fontFamily: 'inherit',
   fontSize: 12,
+  cursor: 'pointer',
+};
+
+// Small top-right buttons (zoom −/+, sign out).
+const cornerBtnStyle = {
+  background: 'none',
+  border: '1px solid #2e2e4e',
+  color: '#7070a0',
+  borderRadius: 4,
+  padding: '4px 8px',
+  fontSize: 10,
+  fontFamily: 'inherit',
   cursor: 'pointer',
 };
 
@@ -84,6 +111,24 @@ export default function IslandView() {
   // the browser's real requirement, not just this app's UI) — see that
   // button for the persistent alternative (a Chrome site-setting).
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+
+  // Whole-page scale — this page gets projected on displays (a smartboard)
+  // much bigger than the laptop it's developed on, and everything here is
+  // sized in fixed px, so it reads small there. Applied as CSS `zoom` on the
+  // root (below), which — unlike transform: scale() — actually changes
+  // layout size, so centering/wrapping/scrolling all stay correct. Saved per
+  // browser (localStorage), so it's set once on the smartboard and stays
+  // there without affecting the laptop.
+  const [zoom, setZoom] = useState(loadZoom);
+  function changeZoom(delta) {
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((zoom + delta) * 100) / 100));
+    setZoom(next);
+    try {
+      localStorage.setItem(ZOOM_KEY, String(next));
+    } catch {
+      // storage blocked — the change still applies for this session
+    }
+  }
 
   const activeClass = useMemo(
     () => store.classes.find((c) => c.id === store.currentClassId) ?? null,
@@ -188,8 +233,11 @@ export default function IslandView() {
   return (
     <div
       style={{
+        zoom,
         position: 'relative',
-        minHeight: '100svh',
+        // zoom scales lengths too, including svh — divide it back out so
+        // the page still fills exactly one screen instead of zoom-many.
+        minHeight: `${100 / zoom}svh`,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -201,25 +249,28 @@ export default function IslandView() {
         boxSizing: 'border-box',
       }}
     >
-      <button
-        onClick={auth.signOut}
-        title={auth.session.user.email}
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 10,
-          background: 'none',
-          border: '1px solid #2e2e4e',
-          color: '#7070a0',
-          borderRadius: 4,
-          padding: '4px 8px',
-          fontSize: 10,
-          fontFamily: 'inherit',
-          cursor: 'pointer',
-        }}
-      >
-        Sign out
-      </button>
+      <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button
+          onClick={() => changeZoom(-ZOOM_STEP)}
+          disabled={zoom <= ZOOM_MIN}
+          title="Zoom out"
+          style={cornerBtnStyle}
+        >
+          −
+        </button>
+        <span style={{ color: '#7070a0', fontSize: 10, minWidth: 30, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+        <button
+          onClick={() => changeZoom(ZOOM_STEP)}
+          disabled={zoom >= ZOOM_MAX}
+          title="Zoom in"
+          style={cornerBtnStyle}
+        >
+          +
+        </button>
+        <button onClick={auth.signOut} title={auth.session.user.email} style={cornerBtnStyle}>
+          Sign out
+        </button>
+      </div>
 
       {!audioUnlocked && (
         // One click anywhere satisfies the browser's requirement — this
