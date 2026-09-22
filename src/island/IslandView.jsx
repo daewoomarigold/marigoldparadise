@@ -23,6 +23,7 @@ import { createRoamer, stepRoamer, stepAnim, EMOTE_FPS } from '../game/movement.
 import { getYBoundsForImage683 } from './terrain.js';
 import { resolveDisplayTama } from '../game/growth.js';
 import { playTap, playAddPoint } from '../sound.js';
+import { notificationsSupported, notificationPermission, requestNotificationPermission, notifyPendingIncrease } from '../notify.js';
 import { useAuth } from '../auth/useAuth.js';
 import { useClassroomStore } from '../data/useClassroomStore.js';
 import LoginScreen from '../auth/LoginScreen.jsx';
@@ -112,6 +113,17 @@ export default function IslandView() {
   // button for the persistent alternative (a Chrome site-setting).
   const [audioUnlocked, setAudioUnlocked] = useState(false);
 
+  // Desktop notifications ("Alice +1") for points landing in pending, so
+  // Taylor knows a tap registered even with this window backgrounded/not
+  // focused — see notify.js and the pending-points effect below. Unlike
+  // the sound unlock above, the browser's grant here is permanent per-
+  // origin, so this just tracks whether it's already been asked (no
+  // re-prompting every reload) rather than resetting each time.
+  const [notifPermission, setNotifPermission] = useState(notificationPermission);
+  function enableNotifications() {
+    requestNotificationPermission().then(setNotifPermission);
+  }
+
   // Whole-page scale — this page gets projected on displays (a smartboard)
   // much bigger than the laptop it's developed on, and everything here is
   // sized in fixed px, so it reads small there. Applied as CSS `zoom` on the
@@ -183,11 +195,15 @@ export default function IslandView() {
   useEffect(() => {
     const prevPending = prevPendingRef.current;
     if (prevPending) {
-      const anyIncrease = students.some((s) => {
+      const increases = students.flatMap((s) => {
         const prior = prevPending.get(s.id);
-        return prior != null && (s.pendingPts ?? 0) > prior;
+        const pending = s.pendingPts ?? 0;
+        return prior != null && pending > prior ? [{ name: s.name, delta: pending - prior }] : [];
       });
-      if (anyIncrease) playAddPoint();
+      if (increases.length > 0) {
+        playAddPoint();
+        notifyPendingIncrease(increases);
+      }
     }
     prevPendingRef.current = new Map(students.map((s) => [s.id, s.pendingPts ?? 0]));
   }, [students]);
@@ -328,6 +344,46 @@ export default function IslandView() {
         >
           🔊 Click to enable sound
         </button>
+      )}
+
+      {notificationsSupported() && notifPermission === 'default' && (
+        // Same idea as the sound-unlock button above (this window may sit
+        // backgrounded behind other apps), different browser API — see
+        // notify.js. Unlike that one, this permission is remembered by the
+        // browser itself, so it never needs asking twice.
+        <button
+          onClick={enableNotifications}
+          title="Get a desktop notification (like a chat app) whenever a student's points go up — works even with this window in the background."
+          style={{
+            position: 'absolute',
+            top: audioUnlocked ? 10 : 38,
+            left: 10,
+            background: 'rgba(78, 240, 216, 0.12)',
+            border: '1px solid #4ef0d8',
+            color: '#4ef0d8',
+            borderRadius: 4,
+            padding: '4px 8px',
+            fontSize: 10,
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
+          🔔 Enable notifications
+        </button>
+      )}
+      {notifPermission === 'denied' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: audioUnlocked ? 10 : 38,
+            left: 10,
+            color: '#7070a0',
+            fontSize: 10,
+            maxWidth: 200,
+          }}
+        >
+          Notifications blocked — allow them for this site in your browser's settings to turn this on.
+        </div>
       )}
 
       {store.classes.length > 0 && (
