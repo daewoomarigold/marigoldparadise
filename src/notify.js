@@ -27,13 +27,18 @@ export function requestNotificationPermission() {
 // changes: [{name, delta}] — one entry per student whose pending went up
 // in this batch (see IslandView.jsx's pending-points effect, which already
 // batches simultaneous increases — e.g. Award All — into one call here,
-// same as it already does for the coin sound).
-export function notifyPendingIncrease(changes) {
+// same as it already does for the coin sound). `everyone` (set by that
+// same caller, which is the one that knows the full roster) collapses the
+// message to "Everyone +N" instead of listing every name — used when an
+// Award All gave the whole class the same amount at once.
+export function notifyPendingIncrease(changes, { everyone = false } = {}) {
   if (notificationPermission() !== 'granted' || changes.length === 0) return;
-  const body = changes.map((c) => `${c.name} +${c.delta}`).join(', ');
+  const body = everyone ? `Everyone +${changes[0].delta}` : changes.map((c) => `${c.name} +${c.delta}`).join(', ');
   // No `tag` — each point-award gets its own popup instead of replacing
   // the last one, same as a chat app showing one toast per message.
-  const n = new Notification('🪙 Points added', { body, icon: ICON_URL });
+  // silent: true — playAddPoint() already covers the sound; without this
+  // Windows' own notification chime plays on top of it too.
+  const n = new Notification('🪙 Points added', { body, icon: ICON_URL, silent: true });
   n.onclick = () => {
     window.focus(); // best-effort — browsers vary in how much they honor this
     n.close();

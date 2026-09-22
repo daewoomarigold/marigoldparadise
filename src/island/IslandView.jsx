@@ -202,7 +202,14 @@ export default function IslandView() {
       });
       if (increases.length > 0) {
         playAddPoint();
-        notifyPendingIncrease(increases);
+        // "Everyone +N" instead of listing every name — an Award All gives
+        // the whole current roster the same amount in one batch, so that's
+        // the signal: every student in the class changed, by the same
+        // delta. (Coincidentally matching individual taps landing in the
+        // same realtime batch would read the same way, but that's rare
+        // enough not to worry about.)
+        const everyone = increases.length === students.length && increases.length > 1 && increases.every((c) => c.delta === increases[0].delta);
+        notifyPendingIncrease(increases, { everyone });
       }
     }
     prevPendingRef.current = new Map(students.map((s) => [s.id, s.pendingPts ?? 0]));
