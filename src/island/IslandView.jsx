@@ -36,6 +36,13 @@ const CANVAS_H = 512;
 const SCALE = 1; // mini sprites are 32x32 native; this is their on-screen size multiplier
 const SPRITE_PX = 32 * SCALE;
 
+// How long to wait, after the LAST pending-points change, before reporting
+// the sound/notification for a batch — see the effect below. Long enough
+// to coalesce a whole Award All's worth of separate per-student realtime
+// events (which arrive over what can be a few hundred ms, not all at
+// once), short enough that a single tap still feels immediate.
+const PENDING_BATCH_DEBOUNCE_MS = 500;
+
 // Page zoom (see the `zoom` state in IslandView) — 25% steps, remembered
 // per browser.
 const ZOOM_KEY = 'marigold-island-zoom';
@@ -178,42 +185,62 @@ export default function IslandView() {
     return () => document.removeEventListener('click', onClick, { capture: true });
   }, []);
 
-  // Coin sound whenever points get ADDED to any student's pending bucket
-  // (from the dashboard, another tab, another device — it arrives here via
-  // the realtime subscription in useClassroomStore, same as everything
-  // else). Track each student's pendingPts as of the last change and
-  // compare: an increase plays the sound, a decrease doesn't (Distribute
-  // zeroes pending out, and its own reveal — StudentGrid.jsx's coin rain —
-  // plays its own sounds). Plays once per batch of changes, not once per
-  // student, so "Award All" is one coin sound rather than a stacked wall
-  // of them. Skips the very first run (nothing to compare against, would
-  // otherwise fire for whatever's already queued on load) and any student
-  // not seen before (a roster change, not points being added).
-  // Browsers only allow this once the page has had a click — see the
-  // "Click to enable sound" button.
-  const prevPendingRef = useRef(null); // Map<studentId, pendingPts> as of the last run, or null before the first
+  // Coin sound + notification whenever points get ADDED to any student's
+  // pending bucket (from the dashboard, another tab, another device — it
+  // arrives here via the realtime subscription in useClassroomStore, same
+  // as everything else). An increase counts, a decrease doesn't
+  // (Distribute zeroes pending out, and its own reveal — StudentGrid.jsx's
+  // coin rain — plays its own sounds).
+  //
+  // Award All writes each student's row as its own separate update (see
+  // useClassroomStore.js's awardAllPendingPts), and Supabase delivers each
+  // one as its own realtime event — they do NOT reliably land in the same
+  // React render, they trickle in over what can be a few hundred ms. Bug
+  // fix: this used to react to every single one of those immediately, so
+  // an Award All fired off N separate "so-and-so +1" notifications instead
+  // of one "Everyone +1", and whichever event landed last (sometimes well
+  // after the others) showed up as a stray notification once things had
+  // already moved on. Now: EVERY_PENDING_BATCH_DEBOUNCE_MS of quiet after
+  // the last change is what actually triggers the sound/notification,
+  // accumulating deltas into pendingBatchRef in the meantime — so
+  // everything belonging to one Award All (or one Distribute, or just one
+  // rapid flurry of individual taps) gets coalesced into a single report,
+  // regardless of how many separate realtime events it arrived as.
+  const prevPendingRef = useRef(null); // Map<studentId, pendingPts> as of the LATEST known value, updated every render (not just at flush time)
+  const pendingBatchRef = useRef(new Map()); // studentId -> {student, delta} accumulated since the last flush
+  const flushTimerRef = useRef(null);
   useEffect(() => {
     const prevPending = prevPendingRef.current;
     if (prevPending) {
-      const increases = students.flatMap((s) => {
+      for (const s of students) {
         const prior = prevPending.get(s.id);
         const pending = s.pendingPts ?? 0;
-        return prior != null && pending > prior ? [{ student: s, delta: pending - prior }] : [];
-      });
-      if (increases.length > 0) {
-        playAddPoint();
-        // "Everyone +N" instead of listing every name — an Award All gives
-        // the whole current roster the same amount in one batch, so that's
-        // the signal: every student in the class changed, by the same
-        // delta. (Coincidentally matching individual taps landing in the
-        // same realtime batch would read the same way, but that's rare
-        // enough not to worry about.)
-        const everyone = increases.length === students.length && increases.length > 1 && increases.every((c) => c.delta === increases[0].delta);
-        notifyPendingIncrease(increases, { everyone });
+        if (prior == null || pending <= prior) continue; // no prior value (roster change, not a points change) or not an increase
+        const existing = pendingBatchRef.current.get(s.id);
+        pendingBatchRef.current.set(s.id, { student: s, delta: (existing?.delta ?? 0) + (pending - prior) });
       }
     }
+    // Reflects the true current value on every render, independent of the
+    // batch above — so the NEXT increase (even mid-debounce) is measured
+    // against what actually just happened, not against whatever was last
+    // reported.
     prevPendingRef.current = new Map(students.map((s) => [s.id, s.pendingPts ?? 0]));
+
+    clearTimeout(flushTimerRef.current);
+    if (pendingBatchRef.current.size === 0) return;
+    flushTimerRef.current = setTimeout(() => {
+      const changes = [...pendingBatchRef.current.values()];
+      pendingBatchRef.current = new Map();
+      playAddPoint();
+      // "Everyone +N" instead of listing every name — an Award All gives
+      // the whole current roster the same amount, so that's the signal:
+      // every student in the class is in this (now fully coalesced)
+      // batch, by the same delta.
+      const everyone = changes.length === students.length && changes.length > 1 && changes.every((c) => c.delta === changes[0].delta);
+      notifyPendingIncrease(changes, { everyone });
+    }, PENDING_BATCH_DEBOUNCE_MS);
   }, [students]);
+  useEffect(() => () => clearTimeout(flushTimerRef.current), []); // cancel a pending flush if the tile/page goes away mid-debounce
 
   // Keep roamer entries in sync with the current roster — add newly-added
   // students, drop removed ones — without resetting anyone already roaming
