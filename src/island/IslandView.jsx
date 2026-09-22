@@ -198,7 +198,7 @@ export default function IslandView() {
       const increases = students.flatMap((s) => {
         const prior = prevPending.get(s.id);
         const pending = s.pendingPts ?? 0;
-        return prior != null && pending > prior ? [{ name: s.name, delta: pending - prior }] : [];
+        return prior != null && pending > prior ? [{ student: s, delta: pending - prior }] : [];
       });
       if (increases.length > 0) {
         playAddPoint();
