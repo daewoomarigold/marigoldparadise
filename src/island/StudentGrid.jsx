@@ -89,18 +89,22 @@ const WALK = resolveAnimState('walk_left'); // reused for the adult->new-egg "wa
 
 // Evolution sequence timings (ms), adapted from triggerEvolve()'s
 // stand/cycle/shake/flash/wave beats — shortened a bit since this is a
-// small dashboard tile, not a full-screen moment. The flash beats
-// (in/hold/out) were slowed down from the first pass for more suspense
-// before the reveal.
-const EVO_CYCLE_STEP_MS = 250; // matches the original's cycle cadence exactly
-const EVO_CYCLE_STEPS = 8; // 8 * 250ms = 2s, same total as the original's stand+cycle buildup
-const EVO_HATCH_WOBBLE_MS = 700; // suspense beat on the resting egg (raw frame 0, not part of egg_hatch's own body array) before cracking starts, sliding side to side — matches IslandView's own wobble
-const EVO_HATCH_FRAME_MS = 500; // was 350 — matches IslandView's own one-shot egg_hatch playback, held a bit longer
-const EVO_SHAKE_MS = 1200; // was 1500 in the original
-const EVO_FLASH_IN_MS = 650; // was 350 — slower ramp to white
-const EVO_FLASH_HOLD_MS = 450; // new — a beat held at full white before the reveal starts
-const EVO_FLASH_OUT_MS = 900; // was 500 — slower, more dramatic reveal
-const EVO_CELEBRATE_MS = 1400; // was 2500 (a brief happy pose here, not a full wave animation — we don't have a "wave" state defined)
+// small dashboard tile, not a full-screen moment. Shortened again here
+// (was: 250/8, 700, 500, 1200, 650, 450, 900, 1400 — a ~6.6s total, or
+// ~5.6s for a hatch) so a full reveal reliably finishes inside
+// EVOLUTION_STEP_GAP_MS's 4s window between a multi-stage distribute's
+// per-step writes (see useClassroomStore.js) instead of getting cut off
+// mid-flash by the next write landing. Worst case now: ~940ms coin rain +
+// ~2.8s hatch/evolution ≈ 3.7s, with ~300ms to spare.
+const EVO_CYCLE_STEP_MS = 150;
+const EVO_CYCLE_STEPS = 4; // 4 * 150ms = 0.6s
+const EVO_HATCH_WOBBLE_MS = 400; // suspense beat on the resting egg (raw frame 0, not part of egg_hatch's own body array) before cracking starts, sliding side to side
+const EVO_HATCH_FRAME_MS = 300; // egg_hatch has 3 frames — 3 * 300ms = 0.9s
+const EVO_SHAKE_MS = 500;
+const EVO_FLASH_IN_MS = 300;
+const EVO_FLASH_HOLD_MS = 200; // a beat held at full white before the reveal starts
+const EVO_FLASH_OUT_MS = 400;
+const EVO_CELEBRATE_MS = 600; // a brief happy pose, not a full wave animation
 
 // adult->new-egg sequence timings (ms) — see runNewCycleSequence. Not
 // ported from the original (it had no equivalent; a wrap-to-a-new-egg
@@ -116,10 +120,15 @@ const EVO_EGG_APPEAR_MS = 450; // holds on the new egg before handing back to no
 // a big distribute still reads as "a lot of coins" without going on
 // forever. Coins spawn faster than they fall (SPAWN < FALL), so several
 // are always mid-fall together — that overlap is what makes it read as
-// rain instead of a metronome of single coins.
-const RAIN_MAX_DROPS = 12;
-const RAIN_SPAWN_INTERVAL_MS = 100; // stagger between coins starting to fall
-const RAIN_FALL_MS = 650; // how long one coin takes to fall through the tile
+// rain instead of a metronome of single coins. Shortened along with the
+// evolution timings above (was 12/100/650, a ~1.75s worst case) — this
+// only ever runs on a multi-stage distribute's FIRST write (see
+// useClassroomStore.js's distributeOneStudent), sharing that same step's
+// budget with the evolution/hatch that follows it, so it needed to shrink
+// too: worst case now (8-1)*70+450 = 940ms.
+const RAIN_MAX_DROPS = 8;
+const RAIN_SPAWN_INTERVAL_MS = 70; // stagger between coins starting to fall
+const RAIN_FALL_MS = 450; // how long one coin takes to fall through the tile
 const RAIN_SPREAD_PX = 70; // horizontal jitter range each coin's fall path is randomized within
 
 function sleep(ms) {
@@ -653,7 +662,12 @@ const meterTrackStyle = {
 const meterFillStyle = {
   height: '100%',
   background: '#4ef0d8',
-  transition: 'width 0.2s',
+  // Was 0.2s — imperceptible at that speed, just snapped to the new width.
+  // Slowed way down so the meter visibly GROWS toward the next stage
+  // instead of instantly appearing there, including across a multi-stage
+  // distribute's per-step writes (each write's width jump gets its own
+  // gradual fill, one after another).
+  transition: 'width 1.2s ease-out',
 };
 
 const ptsStyle = {
