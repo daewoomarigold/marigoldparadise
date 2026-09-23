@@ -58,16 +58,18 @@ function rowToStudent(row) {
 
 // Gap between successive per-growth-stage writes a multi-stage distribute
 // makes (see distributeOneStudent below) — NOT the literal "one second"
-// Taylor originally asked for. StudentGrid.jsx's reveal for a single stage
-// (coin rain, up to ~1.55s for a 10-point step, plus the evolution
-// animation itself: an 8-step cycle buildup + shake + flash + celebrate,
-// ~6.6s, or the shorter ~2.5s adult-to-new-egg wraparound) can run up to
-// roughly 8s on its own. A shorter gap would land the next write, and thus
-// the next reveal, mid-animation — the tile's own cancellation logic (a
-// newer prop change interrupts whatever reveal is still running) would cut
-// the first one off before it finished playing, defeating the entire point
-// of doing this progressively. 9s gives real headroom above that worst case
-// while still reading as "one continuous moment," not two separate clicks.
+// Taylor originally asked for. The evolution animation itself (an 8-step
+// cycle buildup + shake + flash + celebrate, ~6.6s, or the shorter ~2.5s
+// adult-to-new-egg wraparound) can run up to ~6.6s on its own, plus the
+// FIRST write also carries the coin shower (up to ~1.55s more) ahead of
+// its own evolution — call it up to ~8s worst case for that first reveal,
+// ~6.6s for each one after. A shorter gap would land the next write, and
+// thus the next reveal, mid-animation — the tile's own cancellation logic
+// (a newer prop change interrupts whatever reveal is still running) would
+// cut the current one off before it finished playing, defeating the entire
+// point of doing this progressively. 9s gives real headroom above that
+// worst case while still reading as "one continuous moment," not
+// disconnected clicks.
 const EVOLUTION_STEP_GAP_MS = 9000;
 
 function sleep(ms) {
@@ -77,14 +79,23 @@ function sleep(ms) {
 // Distributes ONE student's queued pending_pts as a SEQUENCE of writes, one
 // per growth-meter threshold (POINTS_PER_GROWTH) crossed, instead of a
 // single write jumping straight to the final state — so a 20-point award
-// spanning 2 full growth cycles plays two separate reveals on the tile
-// (coin rain + evolution, then — EVOLUTION_STEP_GAP_MS later — coin rain +
-// evolution again) instead of jumping straight to the end result.
-// StudentGrid.jsx needs no changes at all for this: its detection effect
-// already reacts to ANY gotchiPts/growth change regardless of source, so
-// each of these writes (whether it lands via this same page's realtime
-// subscription or a genuinely different device's) triggers its own reveal
-// exactly the way a truly separate change would.
+// spanning 2 full growth cycles plays two separate evolution reveals on the
+// tile (egg->baby, then — EVOLUTION_STEP_GAP_MS later — baby->toddler)
+// instead of jumping straight to the end result. StudentGrid.jsx needs no
+// changes at all for this: its detection effect already reacts to ANY
+// gotchiPts/growth change regardless of source, so each of these writes
+// (whether it lands via this same page's realtime subscription or a
+// genuinely different device's) triggers its own reveal exactly the way a
+// truly separate change would.
+//
+// The coin shower plays ONCE, on the first write, for the FULL earned
+// amount — not once per stage. The first write carries the entire
+// gotchiPts/lifetimePts jump alongside the first stage crossed; every
+// write after that only touches `growth`/`display_tama_id` (gotchiPts and
+// lifetimePts are already sitting at their final values and aren't
+// included in those updates at all), so StudentGrid's own ptsDelta reads 0
+// for them and only the evolution part of the reveal replays, not the
+// coins.
 //
 // Same gotchiPts/lifetimePts/growth/displayTamaId math the old single-shot
 // applyPtsChange used, just spread across N writes: gotchiPts is the
@@ -126,32 +137,18 @@ async function distributeOneStudent(student) {
     return;
   }
 
-  // Spreads the earned points evenly across each step (e.g. 20 over 2 steps
-  // shows +10 then +10 on the tile's readout, alongside each step's
-  // evolution), folding any remainder into the final step so the running
-  // total always lands exactly on targetGotchiPts/targetLifetimePts.
-  const perStepGotchi = Math.floor(earnedDelta / fullSteps);
-  let runningGotchiPts = priorGotchiPts;
-  let runningLifetimePts = priorLifetimePts;
-
-  for (let i = 0; i < fullSteps; i++) {
-    const isLast = i === fullSteps - 1;
-    growth = { ...advanceGrowth(growth), growthConsumedPts: growth.growthConsumedPts + POINTS_PER_GROWTH };
-    runningGotchiPts = isLast ? targetGotchiPts : runningGotchiPts + perStepGotchi;
-    runningLifetimePts = isLast ? targetLifetimePts : runningLifetimePts + perStepGotchi;
-    if (stillAutoFollowing && growth.currentTama.stage === 'adult') displayTamaId = growth.currentTama.tamaId;
-
+  // First write: the whole earned amount lands at once (this is what the
+  // coin shower plays against) together with the first stage crossed.
+  growth = { ...advanceGrowth(growth), growthConsumedPts: growth.growthConsumedPts + POINTS_PER_GROWTH };
+  if (stillAutoFollowing && growth.currentTama.stage === 'adult') displayTamaId = growth.currentTama.tamaId;
+  {
     const { error: err } = await supabase
       .from('students')
       .update({
-        gotchi_pts: runningGotchiPts,
-        lifetime_pts: runningLifetimePts,
+        gotchi_pts: targetGotchiPts,
+        lifetime_pts: targetLifetimePts,
         growth,
         display_tama_id: String(displayTamaId ?? 'current'),
-        // Cleared on the FIRST write, not the last — otherwise a second
-        // Distribute click partway through this sequence would see pending
-        // still sitting there and kick off a second, overlapping sequence
-        // for the same student.
         pending_pts: 0,
       })
       .eq('id', student.id);
@@ -159,7 +156,25 @@ async function distributeOneStudent(student) {
       setError(err.message);
       return;
     }
-    if (!isLast) await sleep(EVOLUTION_STEP_GAP_MS);
+  }
+
+  // Any further stages this distribute also crosses (fullSteps > 1) each
+  // get their OWN write, spaced out the same way, but only touch
+  // growth/display_tama_id — gotchiPts/lifetimePts stay untouched (already
+  // at their final values from the write above), which is what keeps the
+  // coin shower from replaying on these.
+  for (let i = 1; i < fullSteps; i++) {
+    await sleep(EVOLUTION_STEP_GAP_MS);
+    growth = { ...advanceGrowth(growth), growthConsumedPts: growth.growthConsumedPts + POINTS_PER_GROWTH };
+    if (stillAutoFollowing && growth.currentTama.stage === 'adult') displayTamaId = growth.currentTama.tamaId;
+    const { error: err } = await supabase
+      .from('students')
+      .update({ growth, display_tama_id: String(displayTamaId ?? 'current') })
+      .eq('id', student.id);
+    if (err) {
+      setError(err.message);
+      return;
+    }
   }
 }
 
