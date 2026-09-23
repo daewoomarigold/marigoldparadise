@@ -37,7 +37,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient.js';
-import { newStudentProgress, applyPointsToGrowth } from '../game/growth.js';
+import { newStudentProgress, applyPointsToGrowth, advanceGrowth, POINTS_PER_GROWTH } from '../game/growth.js';
 
 function rowToStudent(row) {
   return {
@@ -56,32 +56,111 @@ function rowToStudent(row) {
   };
 }
 
-// Moved here from TeacherDashboard.jsx — see this file's header for why
-// growth.js itself doesn't own this. Unchanged logic: gotchiPts is the
-// spendable currency balance, lifetimePts is the total ever earned and is
-// what actually drives growth.js's meter/stage advancement (see
-// applyPointsToGrowth), so deducting/spending gotchiPts can never shrink
-// or un-advance a pet's growth — only the EARNED portion of an increase
-// (Math.max(0, newGotchiPts - priorGotchiPts)) counts toward lifetimePts.
-// Also still owns the "freeze display tama once an adult is reached" bug
-// fix: keeps auto-following whatever's growing while displayTamaId is
-// 'current', but pins it the moment a NEW adult is reached so the field
-// doesn't quietly keep cycling forward.
-//
-// Only ever called from distributeClass below now ("Tama Time" — see its
-// own comment) — during the lesson itself, giving points just moves
-// pending_pts (setPendingPts/awardAllPendingPts), never this.
-function applyPtsChange(student, newGotchiPts) {
-  const gotchiPts = Math.max(0, Number(newGotchiPts) || 0);
-  const priorGotchiPts = student.gotchiPts ?? 0;
-  const priorLifetimePts = student.lifetimePts ?? priorGotchiPts;
-  const earnedDelta = Math.max(0, gotchiPts - priorGotchiPts);
-  const lifetimePts = priorLifetimePts + earnedDelta;
+// Gap between successive per-growth-stage writes a multi-stage distribute
+// makes (see distributeOneStudent below) — NOT the literal "one second"
+// Taylor originally asked for. StudentGrid.jsx's reveal for a single stage
+// (coin rain, up to ~1.55s for a 10-point step, plus the evolution
+// animation itself: an 8-step cycle buildup + shake + flash + celebrate,
+// ~6.6s, or the shorter ~2.5s adult-to-new-egg wraparound) can run up to
+// roughly 8s on its own. A shorter gap would land the next write, and thus
+// the next reveal, mid-animation — the tile's own cancellation logic (a
+// newer prop change interrupts whatever reveal is still running) would cut
+// the first one off before it finished playing, defeating the entire point
+// of doing this progressively. 9s gives real headroom above that worst case
+// while still reading as "one continuous moment," not two separate clicks.
+const EVOLUTION_STEP_GAP_MS = 9000;
 
-  const { progress: growth, reachedAdultTamaIds } = applyPointsToGrowth(student.growth ?? newStudentProgress(), lifetimePts);
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Distributes ONE student's queued pending_pts as a SEQUENCE of writes, one
+// per growth-meter threshold (POINTS_PER_GROWTH) crossed, instead of a
+// single write jumping straight to the final state — so a 20-point award
+// spanning 2 full growth cycles plays two separate reveals on the tile
+// (coin rain + evolution, then — EVOLUTION_STEP_GAP_MS later — coin rain +
+// evolution again) instead of jumping straight to the end result.
+// StudentGrid.jsx needs no changes at all for this: its detection effect
+// already reacts to ANY gotchiPts/growth change regardless of source, so
+// each of these writes (whether it lands via this same page's realtime
+// subscription or a genuinely different device's) triggers its own reveal
+// exactly the way a truly separate change would.
+//
+// Same gotchiPts/lifetimePts/growth/displayTamaId math the old single-shot
+// applyPtsChange used, just spread across N writes: gotchiPts is the
+// spendable currency, lifetimePts is the total ever earned (only the
+// earned portion of an increase counts, so a deduction can never shrink or
+// un-advance growth), and displayTamaId keeps auto-following whatever's
+// growing until a NEW adult is reached, then pins to it (last one wins if
+// this crosses more than one).
+async function distributeOneStudent(student) {
+  const priorGotchiPts = student.gotchiPts ?? 0;
+  const targetGotchiPts = Math.max(0, priorGotchiPts + (student.pendingPts ?? 0));
+  const earnedDelta = Math.max(0, targetGotchiPts - priorGotchiPts);
+  const priorLifetimePts = student.lifetimePts ?? priorGotchiPts;
+  const targetLifetimePts = priorLifetimePts + earnedDelta;
+
+  let growth = student.growth ?? newStudentProgress();
   const stillAutoFollowing = !student.displayTamaId || student.displayTamaId === 'current';
-  const displayTamaId = stillAutoFollowing && reachedAdultTamaIds.length > 0 ? reachedAdultTamaIds.at(-1) : student.displayTamaId;
-  return { gotchiPts, lifetimePts, growth, displayTamaId };
+  let displayTamaId = student.displayTamaId;
+
+  // Same count applyPointsToGrowth's internal while loop would compute —
+  // just walked one iteration at a time here instead of all at once.
+  const fullSteps = Math.floor((targetLifetimePts - growth.growthConsumedPts) / POINTS_PER_GROWTH);
+
+  if (fullSteps <= 0) {
+    // No growth threshold crossed — today's single plain write, unchanged
+    // (also covers a pure deduction: earnedDelta clamps to 0, so lifetimePts
+    // and growth never move, only gotchiPts drops).
+    const { error: err } = await supabase
+      .from('students')
+      .update({
+        gotchi_pts: targetGotchiPts,
+        lifetime_pts: targetLifetimePts,
+        growth,
+        display_tama_id: String(displayTamaId ?? 'current'),
+        pending_pts: 0,
+      })
+      .eq('id', student.id);
+    if (err) setError(err.message);
+    return;
+  }
+
+  // Spreads the earned points evenly across each step (e.g. 20 over 2 steps
+  // shows +10 then +10 on the tile's readout, alongside each step's
+  // evolution), folding any remainder into the final step so the running
+  // total always lands exactly on targetGotchiPts/targetLifetimePts.
+  const perStepGotchi = Math.floor(earnedDelta / fullSteps);
+  let runningGotchiPts = priorGotchiPts;
+  let runningLifetimePts = priorLifetimePts;
+
+  for (let i = 0; i < fullSteps; i++) {
+    const isLast = i === fullSteps - 1;
+    growth = { ...advanceGrowth(growth), growthConsumedPts: growth.growthConsumedPts + POINTS_PER_GROWTH };
+    runningGotchiPts = isLast ? targetGotchiPts : runningGotchiPts + perStepGotchi;
+    runningLifetimePts = isLast ? targetLifetimePts : runningLifetimePts + perStepGotchi;
+    if (stillAutoFollowing && growth.currentTama.stage === 'adult') displayTamaId = growth.currentTama.tamaId;
+
+    const { error: err } = await supabase
+      .from('students')
+      .update({
+        gotchi_pts: runningGotchiPts,
+        lifetime_pts: runningLifetimePts,
+        growth,
+        display_tama_id: String(displayTamaId ?? 'current'),
+        // Cleared on the FIRST write, not the last — otherwise a second
+        // Distribute click partway through this sequence would see pending
+        // still sitting there and kick off a second, overlapping sequence
+        // for the same student.
+        pending_pts: 0,
+      })
+      .eq('id', student.id);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    if (!isLast) await sleep(EVOLUTION_STEP_GAP_MS);
+  }
 }
 
 // Applies a partial patch to one student in local state right away — the
@@ -194,8 +273,8 @@ export function useClassroomStore(session) {
     if (!trimmed) return;
     const startingGotchiPts = Math.max(0, Number(startingPts) || 0);
     // A brand-new student's starting balance counts as already-earned —
-    // gotchiPts and lifetimePts both start equal, same as applyPtsChange
-    // would treat an increase from 0.
+    // gotchiPts and lifetimePts both start equal, same as
+    // distributeOneStudent would treat an increase from 0.
     const { progress: growth, reachedAdultTamaIds } = applyPointsToGrowth(newStudentProgress(), startingGotchiPts);
     const { error: err } = await supabase.from('students').insert({
       class_id: classId,
@@ -272,51 +351,28 @@ export function useClassroomStore(session) {
     await Promise.all(classStudents.map((s) => setPendingPts(s, (s.pendingPts ?? 0) + amt)));
   }
 
-  // "Tama Time" — applies every queued pending_pts at once and clears it,
-  // same applyPtsChange growth math the old immediate-award flow used to
-  // run right at award time. Skips anyone with nothing pending entirely —
-  // no write, no realtime event, no reveal for them (see StudentGrid.jsx's
-  // detection effect, which is what actually plays the coin-cascade/
-  // evolution reveal in response to the gotchi_pts/growth this writes).
+  // "Tama Time" — applies every queued pending_pts at once. Skips anyone
+  // with nothing pending entirely — no write, no reveal for them. Each
+  // pending student's own points play out via distributeOneStudent above,
+  // in parallel with everyone else's (so the whole class's reveals start
+  // together, matching the "plays for every student at once" design), but
+  // EACH student's own sequence is however many growth stages they crossed,
+  // spaced out one at a time.
+  //
+  // Deliberately NOT optimistic, unlike every other mutation in this file
+  // (see the file header) — jumping local state straight to the final
+  // gotchiPts/growth right away would show the end result immediately and
+  // defeat the entire point of a progressive reveal on whichever page
+  // clicked Distribute. Distribute is a deliberately multi-second,
+  // ceremonial action (that's the ask: staged reveals, not instant
+  // feedback), so this page just learns about each step via the same
+  // realtime events any other signed-in device gets, same as a genuinely
+  // separate device would — no different from before this file grew
+  // optimistic updates for everything else.
   // classStudents: the current roster, same shape awardAllPendingPts uses.
   async function distributeClass(classStudents) {
     const pending = classStudents.filter((s) => (s.pendingPts ?? 0) !== 0);
-    const nextByStudentId = new Map(pending.map((s) => [s.id, applyPtsChange(s, s.gotchiPts + s.pendingPts)]));
-    // Optimistic, applied to every pending student at once — on the page
-    // that actually clicked Distribute, this is what makes the reveal
-    // (StudentGrid.jsx's evo detection reacts to gotchiPts/growth changing
-    // regardless of where the change came from) start immediately instead
-    // of waiting on N separate round trips.
-    setStudents((prev) =>
-      prev.map((s) => {
-        const next = nextByStudentId.get(s.id);
-        return next ? { ...s, gotchiPts: next.gotchiPts, lifetimePts: next.lifetimePts, growth: next.growth, displayTamaId: next.displayTamaId, pendingPts: 0 } : s;
-      }),
-    );
-    await Promise.all(
-      pending.map((s) => {
-        const next = nextByStudentId.get(s.id);
-        return supabase
-          .from('students')
-          .update({
-            gotchi_pts: next.gotchiPts,
-            lifetime_pts: next.lifetimePts,
-            growth: next.growth,
-            display_tama_id: String(next.displayTamaId),
-            pending_pts: 0,
-          })
-          .eq('id', s.id)
-          .then(({ error: err }) => {
-            if (err) setError(err.message);
-            // No rollback on a partial failure here — with several
-            // students in flight in parallel, unwinding just the ones
-            // that failed back to their own individual prior values
-            // (which may themselves be stale by the time an error comes
-            // back) isn't worth the complexity; the next realtime event
-            // for that row (or a reload) reconciles it either way.
-          });
-      }),
-    );
+    await Promise.all(pending.map((s) => distributeOneStudent(s)));
   }
 
   async function setDisplayTama(studentId, displayTamaId) {
