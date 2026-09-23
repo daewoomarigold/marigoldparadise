@@ -37,11 +37,19 @@ const SCALE = 1; // mini sprites are 32x32 native; this is their on-screen size 
 const SPRITE_PX = 32 * SCALE;
 
 // How long to wait, after the LAST pending-points change, before reporting
-// the sound/notification for a batch — see the effect below. Long enough
-// to coalesce a whole Award All's worth of separate per-student realtime
-// events (which arrive over what can be a few hundred ms, not all at
-// once), short enough that a single tap still feels immediate.
-const PENDING_BATCH_DEBOUNCE_MS = 500;
+// the sound/notification for a batch — see the effect below. A real
+// tension: long enough to coalesce a whole Award All's worth of separate
+// per-student realtime events (they don't all land in one React render,
+// they trickle in) into one "Everyone +N" instead of a flood of names;
+// short enough that giving points to different students one at a time
+// still reads as a stack of separate notifications, not one big delayed
+// batch. Was 500ms — read as laggy for the common one-at-a-time case, so
+// tuned down; an Award All whose events happen to spread out past this
+// window will show as a group of individual names instead of "Everyone"
+// (rare in practice — all ~16 writes fire in the same instant), a
+// reasonable trade for feeling immediate the rest of the time. Turn this
+// back up if that starts happening often enough to be annoying.
+const PENDING_BATCH_DEBOUNCE_MS = 150;
 
 // Page zoom (see the `zoom` state in IslandView) — 25% steps, remembered
 // per browser.
