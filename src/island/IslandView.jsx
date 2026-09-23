@@ -16,7 +16,7 @@
 // gotchigarden repo's two separate static pages instead of one SPA
 // faking routes via a query param).
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { spriteUrl, resolveAnimState } from '../game/spriteData.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { createRoamer, stepRoamer, stepAnim, EMOTE_FPS } from '../game/movement.js';
@@ -97,6 +97,14 @@ const classBtnActiveStyle = {
   color: '#ffe066',
 };
 
+// Static lookups (same object every call, pure function over the JSON
+// import) — hoisted to module scope rather than recomputed inside the
+// component (they used to be, allocating a fresh object 60x/sec off the
+// physics rAF loop below for no reason — cheap individually, but it added
+// up alongside everything else on a full class's worth of roamers).
+const walk = resolveAnimState('walk_left');
+const emoteStates = { happy: resolveAnimState('happy'), jump_happy: resolveAnimState('jump_happy') };
+
 export default function IslandView() {
   const auth = useAuth();
   // Called unconditionally regardless of auth state (rules of hooks) —
@@ -108,6 +116,10 @@ export default function IslandView() {
   const lastTsRef = useRef(null);
   const [, setTick] = useState(0); // bumped every animation frame to force a re-render from the refs above
   const [selectedStudentId, setSelectedStudentId] = useState(null); // which student's tamadex toast is open, if any
+  // Stable reference — StudentGrid is memoized (see its own comment) and a
+  // new inline function every render would defeat that the same way an
+  // unmemoized `students` array would.
+  const onSelectStudent = useCallback((s) => setSelectedStudentId(s.id), []);
   // Browsers block audio.play() triggered by something OTHER than a
   // direct user gesture (e.g. the realtime-triggered playAddPoint below)
   // until a real gesture has happened somewhere on this page — normally
@@ -261,12 +273,6 @@ export default function IslandView() {
       }
     }
   }, [students]);
-
-  // Static lookup (same object every call, pure function over the JSON
-  // import) — fine to capture once in the rAF effect's closure below even
-  // though that effect only runs on mount ([] deps).
-  const walk = resolveAnimState('walk_left');
-  const emoteStates = { happy: resolveAnimState('happy'), jump_happy: resolveAnimState('jump_happy') };
 
   useEffect(() => {
     let raf;
@@ -543,7 +549,7 @@ export default function IslandView() {
         })}
       </div>
 
-      <StudentGrid students={students} onSelectStudent={(s) => setSelectedStudentId(s.id)} />
+      <StudentGrid students={students} onSelectStudent={onSelectStudent} />
       </div>
 
       <div style={{ color: '#7070a0', fontSize: 11 }}>{activeClass ? activeClass.name : 'Marigold Island'}</div>

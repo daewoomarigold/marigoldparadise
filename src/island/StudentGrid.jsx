@@ -70,7 +70,7 @@
 // effect below; a pts-only change (no stage change) just plays the rain
 // and stops.
 
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { meterFraction, POINTS_PER_GROWTH } from '../game/growth.js';
 import { resolveAnimState, spriteUrl } from '../game/spriteData.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
@@ -138,7 +138,17 @@ const TILE_BG_URL = spriteUrl('image-1402.png');
 // rating symbol.
 const COIN_URL = spriteUrl('image-95.png');
 
-export default function StudentGrid({ students, onSelectStudent }) {
+// Wrapped in memo: IslandView re-renders this component's parent 60x/sec
+// (its physics loop bumps a tick to move the field's roamers), but this
+// grid's own content only actually needs to update when the roster data
+// itself changes — its tiles drive their own animation independently
+// (see StudentTile below). Without this, all 16 tiles (each running its
+// own meter/sprite-composite/evolution logic) were being torn down and
+// re-diffed on every physics frame for no reason — a real perf drag with
+// a full class on screen. Relies on the caller passing a stable
+// `onSelectStudent` (useCallback) — IslandView.jsx does — since a new
+// function reference every render would defeat this the same way.
+const StudentGrid = memo(function StudentGrid({ students, onSelectStudent }) {
   const tiles = Array.from({ length: GRID_SIZE }, (_, i) => students[i] ?? null);
 
   return (
@@ -157,7 +167,9 @@ export default function StudentGrid({ students, onSelectStudent }) {
       )}
     </div>
   );
-}
+});
+
+export default StudentGrid;
 
 function StudentTile({ student, onClick }) {
   const growth = student.growth;

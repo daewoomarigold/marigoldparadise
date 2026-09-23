@@ -1,17 +1,28 @@
 // The shared data layer for both TeacherDashboard.jsx and IslandView.jsx —
 // replaces what used to be independent localStorage read/write + a
-// `storage`-event listener in each file. Single source of truth is
-// Supabase itself: an initial fetch seeds state, then Realtime
-// postgres_changes subscriptions on all three tables (see
-// supabase/schema.sql) keep it live. Mutations just write to Supabase and
-// let the realtime event reflect the result back into local state — same
-// path whether the change came from THIS client or another signed-in
-// device (Realtime broadcasts off the database's write-ahead log, not
+// `storage`-event listener in each file. Supabase is still the ultimate
+// source of truth — Realtime postgres_changes subscriptions on all three
+// tables (see supabase/schema.sql) keep local state live, same path
+// whether a change came from THIS client or another signed-in device
+// (Realtime broadcasts off the database's write-ahead log, not
 // per-request, so the originating client gets its own event too, just
-// like everyone else watching). No separate optimistic-update/
-// reconciliation logic as a result — the tradeoff is a small
-// (typically well under a second) lag between an action and it showing
-// up, which is fine for a classroom tool.
+// like everyone else watching).
+//
+// BUT every mutation below also patches local state immediately, before
+// the network write resolves ("optimistic" updates) — the realtime event
+// that eventually arrives just confirms/re-applies the same values, a
+// no-op in the common case. Without this, clicking +1 (or anything else)
+// visibly did nothing until a full round trip to Supabase and back
+// completed — every button felt laggy, not just slow-network ones, since
+// there was no local feedback AT ALL until the network answered. Worth
+// being clear about what this does and doesn't fix: it makes the PAGE YOU
+// CLICKED ON feel instant. It can't make a DIFFERENT page (the dashboard
+// awarding points while the island — a genuinely separate device — finds
+// out) instant, since that other page still only learns about the change
+// once the realtime event reaches it; that hop is real network latency,
+// not something client-side code can shortcut. On error, each mutation
+// rolls its optimistic patch back to whatever the value was right before
+// the click, and surfaces the error via `error` below.
 //
 // RLS (supabase/schema.sql) scopes every table to `owner_id = auth.uid()`
 // (students via their class's owner_id), so every query/subscription here
@@ -71,6 +82,13 @@ function applyPtsChange(student, newGotchiPts) {
   const stillAutoFollowing = !student.displayTamaId || student.displayTamaId === 'current';
   const displayTamaId = stillAutoFollowing && reachedAdultTamaIds.length > 0 ? reachedAdultTamaIds.at(-1) : student.displayTamaId;
   return { gotchiPts, lifetimePts, growth, displayTamaId };
+}
+
+// Applies a partial patch to one student in local state right away — the
+// optimistic half of a mutation, called before its network write. See the
+// file header for why every mutation below does this.
+function patchStudent(setStudents, studentId, patch) {
+  setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, ...patch } : s)));
 }
 
 // session: the object from useAuth() (or null/undefined — the hook just
@@ -153,13 +171,22 @@ export function useClassroomStore(session) {
   }
 
   async function deleteClass(cls) {
+    setClasses((prev) => prev.filter((c) => c.id !== cls.id));
     const { error: err } = await supabase.from('classes').delete().eq('id', cls.id);
-    if (err) setError(err.message);
+    if (err) {
+      setError(err.message);
+      setClasses((prev) => (prev.some((c) => c.id === cls.id) ? prev : [...prev, cls])); // roll back — put it back if the delete failed
+    }
   }
 
   async function selectClass(classId) {
+    const prevClassId = currentClassId;
+    setCurrentClassId(classId);
     const { error: err } = await supabase.from('user_settings').upsert({ owner_id: userId, current_class_id: classId }, { onConflict: 'owner_id' });
-    if (err) setError(err.message);
+    if (err) {
+      setError(err.message);
+      setCurrentClassId(prevClassId);
+    }
   }
 
   async function createStudent(classId, { name, email, startingPts }) {
@@ -210,19 +237,29 @@ export function useClassroomStore(session) {
   }
 
   async function removeStudent(studentId) {
+    const prev = students.find((s) => s.id === studentId);
+    setStudents((list) => list.filter((s) => s.id !== studentId));
     const { error: err } = await supabase.from('students').delete().eq('id', studentId);
-    if (err) setError(err.message);
+    if (err) {
+      setError(err.message);
+      if (prev) setStudents((list) => (list.some((s) => s.id === studentId) ? list : [...list, prev])); // roll back — put them back if the delete failed
+    }
   }
 
   // The "give points" primitive during a lesson — just moves pending_pts,
   // no growth math at all (that's the whole point: nothing about a
   // student's pet should change yet). student: the CURRENT student object,
-  // used only for its id here (newPendingPts is already the absolute value
-  // to write, same calling convention the old setStudentPts had).
+  // used only for its id/prior value here (newPendingPts is already the
+  // absolute value to write, same calling convention the old setStudentPts
+  // had).
   async function setPendingPts(student, newPendingPts) {
     const pendingPts = Math.trunc(Number(newPendingPts) || 0);
+    patchStudent(setStudents, student.id, { pendingPts });
     const { error: err } = await supabase.from('students').update({ pending_pts: pendingPts }).eq('id', student.id);
-    if (err) setError(err.message);
+    if (err) {
+      setError(err.message);
+      patchStudent(setStudents, student.id, { pendingPts: student.pendingPts ?? 0 });
+    }
   }
 
   // classStudents: the current roster (so each gets its OWN delta off its
@@ -244,9 +281,21 @@ export function useClassroomStore(session) {
   // classStudents: the current roster, same shape awardAllPendingPts uses.
   async function distributeClass(classStudents) {
     const pending = classStudents.filter((s) => (s.pendingPts ?? 0) !== 0);
+    const nextByStudentId = new Map(pending.map((s) => [s.id, applyPtsChange(s, s.gotchiPts + s.pendingPts)]));
+    // Optimistic, applied to every pending student at once — on the page
+    // that actually clicked Distribute, this is what makes the reveal
+    // (StudentGrid.jsx's evo detection reacts to gotchiPts/growth changing
+    // regardless of where the change came from) start immediately instead
+    // of waiting on N separate round trips.
+    setStudents((prev) =>
+      prev.map((s) => {
+        const next = nextByStudentId.get(s.id);
+        return next ? { ...s, gotchiPts: next.gotchiPts, lifetimePts: next.lifetimePts, growth: next.growth, displayTamaId: next.displayTamaId, pendingPts: 0 } : s;
+      }),
+    );
     await Promise.all(
       pending.map((s) => {
-        const next = applyPtsChange(s, s.gotchiPts + s.pendingPts);
+        const next = nextByStudentId.get(s.id);
         return supabase
           .from('students')
           .update({
@@ -259,14 +308,25 @@ export function useClassroomStore(session) {
           .eq('id', s.id)
           .then(({ error: err }) => {
             if (err) setError(err.message);
+            // No rollback on a partial failure here — with several
+            // students in flight in parallel, unwinding just the ones
+            // that failed back to their own individual prior values
+            // (which may themselves be stale by the time an error comes
+            // back) isn't worth the complexity; the next realtime event
+            // for that row (or a reload) reconciles it either way.
           });
       }),
     );
   }
 
   async function setDisplayTama(studentId, displayTamaId) {
+    const prev = students.find((s) => s.id === studentId);
+    patchStudent(setStudents, studentId, { displayTamaId });
     const { error: err } = await supabase.from('students').update({ display_tama_id: String(displayTamaId) }).eq('id', studentId);
-    if (err) setError(err.message);
+    if (err) {
+      setError(err.message);
+      if (prev) patchStudent(setStudents, studentId, { displayTamaId: prev.displayTamaId });
+    }
   }
 
   return {
