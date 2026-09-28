@@ -61,24 +61,14 @@
 //
 // Coin rain ("Tama Time" — see TeacherDashboard.jsx/useClassroomStore.js's
 // pendingPts/distributeClass): whenever a tile's gotchiPts increases, a
-// shower of falling coin icons plays — one drop per point, capped at
-// RAIN_MAX_DROPS, staggered so several are visibly falling at once (that's
-// the "raining," not one-at-a-time), each firing playAddPoint() as it
-// spawns.
-//
-// Meter montage: a multi-stage distribute (useClassroomStore.js's
-// distributeOneStudent) writes the FULL earned amount + the meter's fully
-// caught-up growthConsumedPts in one shot, without moving currentTama yet
-// — so this tile can play the meter climbing/resetting through however
-// many stage-thresholds that crossed (runMeterMontage, driven by
-// meterOverride — see below), entirely locally, at its own pace, before
-// currentTama starts actually changing. It runs alongside the coin rain
-// (both fire off the same write), then — once useClassroomStore.js's own
-// wait has given this room to finish — the evolution sequence below plays
-// once per stage crossed, back to back, only ~250ms apart (see
-// EVOLUTION_STEP_GAP_MS over there): a fast flash-through chain rather
-// than each stage getting its own fully-played-out reveal, landing
-// properly only on the last one.
+// shower of falling coin icons plays first — one drop per point, capped
+// at RAIN_MAX_DROPS, staggered so several are visibly falling at once
+// (that's the "raining," not one-at-a-time), each firing playAddPoint()
+// as it spawns — before falling straight into the evolution sequence
+// above if the growth stage ALSO changed as part of the same distribute.
+// Both reveals are driven by the same `evo` state machine/detection
+// effect below; a pts-only change (no stage change) just plays the rain
+// and stops.
 
 import { memo, useEffect, useRef, useState } from 'react';
 import { meterFraction, POINTS_PER_GROWTH } from '../game/growth.js';
@@ -99,14 +89,13 @@ const WALK = resolveAnimState('walk_left'); // reused for the adult->new-egg "wa
 
 // Evolution sequence timings (ms), adapted from triggerEvolve()'s
 // stand/cycle/shake/flash/wave beats — shortened a bit since this is a
-// small dashboard tile, not a full-screen moment. A single stage's reveal
-// (~2.6-2.8s) mostly only plays out IN FULL for the last stage of a
-// multi-stage distribute's evolution chain — useClassroomStore.js spaces
-// those writes only ~250ms apart on purpose (see its EVOLUTION_STEP_GAP_MS),
-// so earlier stages flash by quickly (cut short by the next one landing —
-// see the cancellation logic in the detection effect below) rather than
-// each playing to completion; that's the intended "rapid flash-through"
-// montage feel, not a bug.
+// small dashboard tile, not a full-screen moment. Shortened again here
+// (was: 250/8, 700, 500, 1200, 650, 450, 900, 1400 — a ~6.6s total, or
+// ~5.6s for a hatch) so a full reveal reliably finishes inside
+// EVOLUTION_STEP_GAP_MS's 4s window between a multi-stage distribute's
+// per-step writes (see useClassroomStore.js) instead of getting cut off
+// mid-flash by the next write landing. Worst case now: ~940ms coin rain +
+// ~2.8s hatch/evolution ≈ 3.7s, with ~300ms to spare.
 const EVO_CYCLE_STEP_MS = 150;
 const EVO_CYCLE_STEPS = 4; // 4 * 150ms = 0.6s
 const EVO_HATCH_WOBBLE_MS = 400; // suspense beat on the resting egg (raw frame 0, not part of egg_hatch's own body array) before cracking starts, sliding side to side
@@ -131,23 +120,16 @@ const EVO_EGG_APPEAR_MS = 450; // holds on the new egg before handing back to no
 // a big distribute still reads as "a lot of coins" without going on
 // forever. Coins spawn faster than they fall (SPAWN < FALL), so several
 // are always mid-fall together — that overlap is what makes it read as
-// rain instead of a metronome of single coins. Worst case (8-1)*70+450 =
-// 940ms — useClassroomStore.js's distributeOneStudent waits at least this
-// long (meterMontageWaitMs) before starting the evolution chain, so keep
-// that in sync if these change.
+// rain instead of a metronome of single coins. Shortened along with the
+// evolution timings above (was 12/100/650, a ~1.75s worst case) — this
+// only ever runs on a multi-stage distribute's FIRST write (see
+// useClassroomStore.js's distributeOneStudent), sharing that same step's
+// budget with the evolution/hatch that follows it, so it needed to shrink
+// too: worst case now (8-1)*70+450 = 940ms.
 const RAIN_MAX_DROPS = 8;
 const RAIN_SPAWN_INTERVAL_MS = 70; // stagger between coins starting to fall
 const RAIN_FALL_MS = 450; // how long one coin takes to fall through the tile
 const RAIN_SPREAD_PX = 70; // horizontal jitter range each coin's fall path is randomized within
-
-// Meter montage timings (ms) — see runMeterMontage below. One fill+reset
-// cycle per growth-meter threshold crossed in a single distribute write
-// (useClassroomStore.js's distributeOneStudent phase 1): fills to full,
-// then (if there's another cycle after it) snaps back down and fills
-// again. useClassroomStore.js's meterMontageWaitMs mirrors these — keep
-// both in sync if either changes.
-const METER_FILL_MS = 450;
-const METER_RESET_MS = 150;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -175,14 +157,6 @@ const COIN_URL = spriteUrl('image-95.png');
 // a full class on screen. Relies on the caller passing a stable
 // `onSelectStudent` (useCallback) — IslandView.jsx does — since a new
 // function reference every render would defeat this the same way.
-//
-// Note this only protects against IslandView's OWN re-renders (the 60fps
-// tick) — it does NOT stop StudentGrid re-rendering when `students` itself
-// changes, which it genuinely does on every realtime update. That's fine
-// as long as each individual StudentTile still bails out on its own (see
-// its own memo below) for every OTHER student whose row didn't change —
-// without that, a single point landing for one student would still
-// re-render and re-composite all 16 tiles' sprites.
 const StudentGrid = memo(function StudentGrid({ students, onSelectStudent }) {
   const tiles = Array.from({ length: GRID_SIZE }, (_, i) => students[i] ?? null);
 
@@ -198,17 +172,7 @@ const StudentGrid = memo(function StudentGrid({ students, onSelectStudent }) {
       }}
     >
       {tiles.map((s, i) =>
-        // onSelectStudent passed straight through (stable — see above)
-        // rather than wrapped in a fresh `() => onSelectStudent(s)` here:
-        // that per-tile arrow was recreated on every StudentGrid render
-        // (any realtime update, for ANY student), which — since
-        // StudentTile wasn't memoized against it — meant literally every
-        // point given to literally anyone re-rendered all 16 tiles. A
-        // multi-stage distribute firing several writes per student in
-        // quick succession (see useClassroomStore.js's distributeOneStudent)
-        // turned that into a visible stutter/lock-up once several
-        // students' reveals were landing within the same second or two.
-        s ? <StudentTile key={s.id} student={s} onSelectStudent={onSelectStudent} /> : <EmptyTile key={`empty-${i}`} />,
+        s ? <StudentTile key={s.id} student={s} onClick={() => onSelectStudent(s)} /> : <EmptyTile key={`empty-${i}`} />,
       )}
     </div>
   );
@@ -216,34 +180,21 @@ const StudentGrid = memo(function StudentGrid({ students, onSelectStudent }) {
 
 export default StudentGrid;
 
-// Memoized: StudentGrid re-renders on every roster update (any student's
-// row changing), but with a stable `onSelectStudent` and `applyRowChange`
-// (useClassroomStore.js) preserving reference equality for rows that
-// DIDN'T change, memo lets every OTHER tile bail out immediately instead
-// of re-running its own meter/sprite-composite/evolution logic for no
-// reason — see the note on StudentGrid above for why this matters more
-// now than it used to (multi-write reveals land several updates in quick
-// succession). The click handler is built HERE, not passed in as a prop,
-// specifically so it doesn't have to be part of this comparison at all.
-const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
+function StudentTile({ student, onClick }) {
   const growth = student.growth;
   const fraction = meterFraction(growth, student.lifetimePts ?? student.gotchiPts);
   const { stage, tamaId } = growth.currentTama; // deliberately the growing tama, not the display tama — see file header
   const isEgg = stage === 'egg';
 
-  // --- Evolution overlay / coin rain / meter montage ------------------------
+  // --- Evolution overlay / coin rain ---------------------------------------
   // See the file header for the full picture. prevSnapshotRef remembers
-  // what was showing last render (stage/tamaId/gotchiPts/growthConsumedPts);
-  // when any of those change we still have the OLD identity in hand (needed
-  // for the cycle/shake beats, which show the pet that's ABOUT to
-  // transform, not the new one) before kicking off the sequence. `evo` is
-  // null during normal play; `meterOverride` (the meter montage's own
-  // state, separate from `evo` since it renders in a completely different
-  // part of the tile) is null whenever the meter should just show its real,
-  // prop-driven fraction.
+  // what was showing last render (now including gotchiPts, not just
+  // stage/tamaId); when either changes we still have the OLD identity in
+  // hand (needed for the cycle/shake beats, which show the pet that's
+  // ABOUT to transform, not the new one) before kicking off the sequence.
+  // `evo` is null during normal play.
   const prevSnapshotRef = useRef(null);
   const [evo, setEvo] = useState(null);
-  const [meterOverride, setMeterOverride] = useState(null); // {fraction, ms} | null
 
   // Cycles walking_forward's 2 body frames in place — no position movement
   // (this is a static tile, not the roaming island), just a "still alive"
@@ -275,38 +226,16 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
     // moving at all here — see RAIN_MAX_DROPS below for how a big jump is
     // capped, not this.
     const ptsDelta = !isInitialMount && student.gotchiPts > prev.gotchiPts ? student.gotchiPts - prev.gotchiPts : 0;
-    // How many growth-meter thresholds this write just caught up on, if
-    // any — see useClassroomStore.js's distributeOneStudent phase 1, which
-    // writes growthConsumedPts all the way to its final value without
-    // moving currentTama yet (tamaChanged stays false for this same write,
-    // by design). Rounded since it should always land on an exact multiple
-    // of POINTS_PER_GROWTH; Math.round just guards against float drift.
-    const gcDelta = !isInitialMount && growth.growthConsumedPts > prev.growthConsumedPts
-      ? Math.round((growth.growthConsumedPts - prev.growthConsumedPts) / POINTS_PER_GROWTH)
-      : 0;
-    prevSnapshotRef.current = { stage, tamaId, gotchiPts: student.gotchiPts, growthConsumedPts: growth.growthConsumedPts };
-    if (!tamaChanged && ptsDelta === 0 && gcDelta === 0) return;
+    prevSnapshotRef.current = { stage, tamaId, gotchiPts: student.gotchiPts };
+    if (!tamaChanged && ptsDelta === 0) return;
 
     let cancelled = false;
     const isCancelled = () => cancelled;
-    // Clears any montage state left dangling by an interrupted PRIOR
-    // reveal (this effect's own cleanup below only cancels that reveal's
-    // async work, it can't reach into its now-stale meterOverride) — this
-    // invocation is about to set its own if it needs one, but if it
-    // doesn't (e.g. this is purely a tamaChanged evolution step), a stale
-    // override would otherwise keep showing the wrong width underneath it.
-    setMeterOverride(null);
     async function run() {
-      // ptsDelta (coin rain) and gcDelta (meter montage) always arrive on
-      // the SAME write in practice (distributeOneStudent's phase 1 sets
-      // both together), never alongside tamaChanged (phase 2's writes only
-      // touch currentTama) — but nothing here actually depends on that,
-      // they just run concurrently and evolution waits for both.
-      const jobs = [];
-      if (ptsDelta > 0) jobs.push(runCoinRain(prev, ptsDelta, isCancelled, setEvo));
-      if (gcDelta > 0) jobs.push(runMeterMontage(gcDelta, isCancelled, setMeterOverride));
-      if (jobs.length > 0) await Promise.all(jobs);
-      if (isCancelled()) return;
+      if (ptsDelta > 0) {
+        await runCoinRain(prev, ptsDelta, isCancelled, setEvo);
+        if (isCancelled()) return;
+      }
       if (tamaChanged) {
         // adult -> a fresh egg (the one path that ever lands back on
         // 'egg' from something other than an egg) gets its own wave/
@@ -322,12 +251,11 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
     return () => {
       cancelled = true;
     };
-    // Only re-run when the growing tama's identity, gotchiPts, or
-    // growthConsumedPts actually changes — intentionally not depending on
-    // setEvo/setMeterOverride (both stable) or the functions above
-    // (module-level, pure).
+    // Only re-run when the growing tama's identity or gotchiPts actually
+    // changes — intentionally not depending on setEvo (stable) or the
+    // functions above (module-level, pure).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, tamaId, student.gotchiPts, growth.growthConsumedPts]);
+  }, [stage, tamaId, student.gotchiPts]);
 
   const eggFrameIdx = animFrame % EGG_ROCK.body.length;
   const normalFrames = isEgg
@@ -362,7 +290,7 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
     <div
       role="button"
       style={{ ...tileStyle, ...tileBgStyle, cursor: 'pointer' }}
-      onClick={() => onSelectStudent(student)}
+      onClick={onClick}
     >
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 32 * TILE_SCALE }}>
         {!showing.hidden && (
@@ -404,17 +332,7 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
       </div>
       <div style={nameStyle}>{student.name}</div>
       <div style={meterTrackStyle} title={`${Math.round(fraction * POINTS_PER_GROWTH)}/${POINTS_PER_GROWTH} pts to next stage`}>
-        <div
-          style={{
-            ...meterFillStyle,
-            width: `${(meterOverride?.fraction ?? fraction) * 100}%`,
-            // While the montage is running, its own faster fill/reset
-            // speed overrides the passive default (see meterFillStyle) so
-            // each cycle reads as a quick, deliberate beat instead of the
-            // slow "gradual" feel normal point-by-point play uses.
-            ...(meterOverride ? { transition: `width ${meterOverride.ms}ms ease-out` } : null),
-          }}
-        />
+        <div style={{ ...meterFillStyle, width: `${fraction * 100}%` }} />
       </div>
       <div style={ptsStyle}>
         <img src={COIN_URL} alt="" style={coinIconStyle} />
@@ -422,7 +340,7 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
       </div>
     </div>
   );
-});
+}
 
 // One drop per point gotchiPts went up by (capped at RAIN_MAX_DROPS),
 // each falling independently — playAddPoint() firing the moment a drop
@@ -476,36 +394,6 @@ async function runCoinRain(oldTama, delta, isCancelled, setEvo) {
     }
     requestAnimationFrame(frame);
   });
-}
-
-// Plays the meter climbing to full and resetting, once per growth-meter
-// threshold a single distribute write just crossed (stepsCrossed — see
-// useClassroomStore.js's distributeOneStudent phase 1, which writes the
-// FULL earned total + the fully-caught-up growthConsumedPts in one shot
-// without moving currentTama yet). Doesn't need to know the actual
-// fraction values at all: each cycle just targets 1 (full), then 0 (reset)
-// for the next one — the CSS transition on meterFillStyle (or the
-// meterOverride-driven one, when set, see StudentTile) tweens from
-// whatever's currently showing, so the very first fill correctly climbs
-// from wherever the meter really was before this distribute, no separate
-// "starting fraction" needed. The LAST cycle stops at full and leaves
-// meterOverride there — StudentTile clears it right after, at which point
-// the real prop-driven fraction (already the correct final leftover, since
-// growthConsumedPts is already fully caught up) takes over, so the meter
-// settles into its actual post-distribute position via the same passive
-// transition normal play uses, rather than snapping.
-async function runMeterMontage(stepsCrossed, isCancelled, setMeterOverride) {
-  for (let i = 0; i < stepsCrossed && !isCancelled(); i++) {
-    setMeterOverride({ fraction: 1, ms: METER_FILL_MS });
-    await sleep(METER_FILL_MS);
-    if (isCancelled()) return;
-    if (i < stepsCrossed - 1) {
-      setMeterOverride({ fraction: 0, ms: METER_RESET_MS });
-      await sleep(METER_RESET_MS);
-      if (isCancelled()) return;
-    }
-  }
-  setMeterOverride(null);
 }
 
 // Runs the ported triggerEvolve() choreography, pushing each beat into
