@@ -157,6 +157,14 @@ const COIN_URL = spriteUrl('image-95.png');
 // a full class on screen. Relies on the caller passing a stable
 // `onSelectStudent` (useCallback) — IslandView.jsx does — since a new
 // function reference every render would defeat this the same way.
+//
+// Note this only protects against IslandView's OWN re-renders (the 60fps
+// tick) — it does NOT stop StudentGrid re-rendering when `students` itself
+// changes, which it genuinely does on every realtime update. That's fine
+// as long as each individual StudentTile still bails out on its own (see
+// its own memo below) for every OTHER student whose row didn't change —
+// without that, a single point landing for one student would still
+// re-render and re-composite all 16 tiles' sprites.
 const StudentGrid = memo(function StudentGrid({ students, onSelectStudent }) {
   const tiles = Array.from({ length: GRID_SIZE }, (_, i) => students[i] ?? null);
 
@@ -172,7 +180,13 @@ const StudentGrid = memo(function StudentGrid({ students, onSelectStudent }) {
       }}
     >
       {tiles.map((s, i) =>
-        s ? <StudentTile key={s.id} student={s} onClick={() => onSelectStudent(s)} /> : <EmptyTile key={`empty-${i}`} />,
+        // onSelectStudent passed straight through (stable — see above)
+        // rather than wrapped in a fresh `() => onSelectStudent(s)` here:
+        // that per-tile arrow was recreated on every StudentGrid render
+        // (any realtime update, for ANY student), which — since
+        // StudentTile wasn't memoized against it — meant literally every
+        // point given to literally anyone re-rendered all 16 tiles.
+        s ? <StudentTile key={s.id} student={s} onSelectStudent={onSelectStudent} /> : <EmptyTile key={`empty-${i}`} />,
       )}
     </div>
   );
@@ -180,7 +194,14 @@ const StudentGrid = memo(function StudentGrid({ students, onSelectStudent }) {
 
 export default StudentGrid;
 
-function StudentTile({ student, onClick }) {
+// Memoized: StudentGrid re-renders on every roster update (any student's
+// row changing), but with a stable `onSelectStudent` and `applyRowChange`
+// (useClassroomStore.js) preserving reference equality for rows that
+// DIDN'T change, memo lets every OTHER tile bail out immediately instead
+// of re-running its own meter/sprite-composite/evolution logic for no
+// reason. The click handler is built HERE, not passed in as a prop,
+// specifically so it doesn't have to be part of this comparison at all.
+const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
   const growth = student.growth;
   const fraction = meterFraction(growth, student.lifetimePts ?? student.gotchiPts);
   const { stage, tamaId } = growth.currentTama; // deliberately the growing tama, not the display tama — see file header
@@ -290,7 +311,7 @@ function StudentTile({ student, onClick }) {
     <div
       role="button"
       style={{ ...tileStyle, ...tileBgStyle, cursor: 'pointer' }}
-      onClick={onClick}
+      onClick={() => onSelectStudent(student)}
     >
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 32 * TILE_SCALE }}>
         {!showing.hidden && (
@@ -340,7 +361,7 @@ function StudentTile({ student, onClick }) {
       </div>
     </div>
   );
-}
+});
 
 // One drop per point gotchiPts went up by (capped at RAIN_MAX_DROPS),
 // each falling independently — playAddPoint() firing the moment a drop
