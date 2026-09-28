@@ -56,6 +56,26 @@ function rowToStudent(row) {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// A small buffer between one student's own successive stage-writes below —
+// NOT the same thing as the old EVOLUTION_STEP_GAP_MS this replaced (that
+// one paced ANIMATION LENGTH against the server's writes, which is now
+// entirely StudentGrid.jsx's job via its own job queue — see its file
+// header). This exists for a narrower, purely technical reason: two writes
+// to the same row landing close enough together can have their realtime
+// events arrive close enough together that React's update batching commits
+// them as a SINGLE render, skipping the intermediate state entirely (e.g.
+// egg->baby->toddler collapsing straight to egg->toddler, with no render
+// ever showing "baby" for the tile's detection effect to even see, let
+// alone queue). No amount of client-side queueing can recover a state that
+// was never rendered — a queue only ever sees what actually gets observed.
+// This buffer just has to comfortably exceed one write's request time +
+// realtime propagation time, not an animation's length, so it stays small.
+const WRITE_SEPARATION_MS = 300;
+
 // Distributes ONE student's queued pending_pts as a SEQUENCE of writes, one
 // per growth-meter threshold (POINTS_PER_GROWTH) crossed, instead of a
 // single write jumping straight to the final state — so a 20-point award
@@ -63,25 +83,15 @@ function rowToStudent(row) {
 // tile (egg->baby, then baby->toddler) instead of jumping straight to the
 // end result.
 //
-// Fired back to back with NO artificial delay between them — there used to
-// be a sleep() here sized to roughly match how long StudentGrid.jsx's
-// reveal takes, so the next write wouldn't land mid-animation. That was
-// fragile (any jitter between the guessed duration and the real one, or
-// between realtime delivery and rendering, could still cut a reveal short)
-// and, worse, front-loaded ALL the earned points into the first write to
-// keep the coin shower from repeating — which made the growth meter
-// overflow past 100% and then visibly drop once later writes caught it up.
-//
-// StudentGrid.jsx now queues whatever it sees and plays each entry fully to
-// completion before starting the next, regardless of how close together
-// the writes actually land — so pacing is entirely the CLIENT's job, and
-// this function is free to just write the true, proportional state for
-// each stage as fast as it can. Each write here advances gotchiPts/
-// lifetimePts by that stage's own even share (remainder folded into the
-// last one) IN LOCKSTEP with growthConsumedPts — never overflowing — and
-// the coin shower plays once per write (sized to that write's own small
-// share), not once for the whole distribute; see StudentGrid.jsx's file
-// header for why that reads fine rather than repetitive now.
+// Each write advances gotchiPts/lifetimePts by that stage's own even share
+// (remainder folded into the last one) IN LOCKSTEP with growthConsumedPts
+// — never overflowing — and the coin shower plays once per write (sized to
+// that write's own small share), not once for the whole distribute; see
+// StudentGrid.jsx's file header for why that reads fine rather than
+// repetitive. StudentGrid.jsx queues whatever it sees and plays each entry
+// fully to completion before starting the next, regardless of how close
+// together the writes land — actual ANIMATION pacing is entirely the
+// client's job now, not this function's.
 //
 // Same gotchiPts/lifetimePts/growth/displayTamaId math the old single-shot
 // applyPtsChange used, just spread across N writes: gotchiPts is the
@@ -148,6 +158,7 @@ async function distributeOneStudent(student) {
       setError(err.message);
       return;
     }
+    if (!isLast) await sleep(WRITE_SEPARATION_MS);
   }
 }
 
