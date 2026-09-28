@@ -60,15 +60,36 @@
 // Tile-only, by request — the island field's roamers are untouched.
 //
 // Coin rain ("Tama Time" — see TeacherDashboard.jsx/useClassroomStore.js's
-// pendingPts/distributeClass): whenever a tile's gotchiPts increases, a
-// shower of falling coin icons plays first — one drop per point, capped
-// at RAIN_MAX_DROPS, staggered so several are visibly falling at once
-// (that's the "raining," not one-at-a-time), each firing playAddPoint()
-// as it spawns — before falling straight into the evolution sequence
-// above if the growth stage ALSO changed as part of the same distribute.
-// Both reveals are driven by the same `evo` state machine/detection
-// effect below; a pts-only change (no stage change) just plays the rain
-// and stops.
+// pendingPts/distributeClass): whenever a write increases a student's
+// gotchiPts, a shower of falling coin icons plays — one drop per point,
+// capped at RAIN_MAX_DROPS, staggered so several are visibly falling at
+// once (that's the "raining," not one-at-a-time), each firing
+// playAddPoint() as it spawns.
+//
+// A JOB QUEUE, not a timer, drives all of this. Each realtime write this
+// tile sees (a plain point add, or one stage of a multi-stage distribute —
+// see distributeOneStudent) becomes a "job" — its own complete before/after
+// snapshot — pushed onto a per-tile queue. A single processor drains that
+// queue one job at a time, always letting the current job's ENTIRE reveal
+// (coin rain, meter, and/or evolution) finish before starting the next,
+// no matter how close together the underlying writes actually land.
+// There's deliberately no gap constant to keep in sync with anything on
+// the server anymore, and no cancellation logic either — a newer write
+// just queues up behind whatever's already playing instead of interrupting
+// it. (Two things this doesn't need to solve: the RANDOM stage a student
+// lands on — toddler/teen/adult picks in growth.js's advanceGrowth — is
+// still decided server-side and only ever arrives via these writes, so the
+// queue never has to guess at it; and since distributeOneStudent now
+// writes each stage's own proportional share of points rather than
+// front-loading everything into one write, the coin shower plays once per
+// job/write — reading as "a little more, again" through a chain of stages
+// rather than a big shower repeating.)
+//
+// The growth meter (see runMeterJob below) is driven by this SAME queue,
+// not live props — while an earlier job is still animating, live props may
+// already reflect a LATER job's result, so both the sprite and the meter
+// read their identity/position from the CURRENT job's own snapshot, not
+// from student.growth/gotchiPts directly.
 
 import { memo, useEffect, useRef, useState } from 'react';
 import { meterFraction, POINTS_PER_GROWTH } from '../game/growth.js';
@@ -89,13 +110,10 @@ const WALK = resolveAnimState('walk_left'); // reused for the adult->new-egg "wa
 
 // Evolution sequence timings (ms), adapted from triggerEvolve()'s
 // stand/cycle/shake/flash/wave beats — shortened a bit since this is a
-// small dashboard tile, not a full-screen moment. Shortened again here
-// (was: 250/8, 700, 500, 1200, 650, 450, 900, 1400 — a ~6.6s total, or
-// ~5.6s for a hatch) so a full reveal reliably finishes inside
-// EVOLUTION_STEP_GAP_MS's 4s window between a multi-stage distribute's
-// per-step writes (see useClassroomStore.js) instead of getting cut off
-// mid-flash by the next write landing. Worst case now: ~940ms coin rain +
-// ~2.8s hatch/evolution ≈ 3.7s, with ~300ms to spare.
+// small dashboard tile, not a full-screen moment. These no longer need to
+// fit inside any particular gap — the job queue above lets each reveal run
+// exactly as long as it takes — so these are free to lengthen again if a
+// more dramatic reveal is wanted; nothing downstream depends on the total.
 const EVO_CYCLE_STEP_MS = 150;
 const EVO_CYCLE_STEPS = 4; // 4 * 150ms = 0.6s
 const EVO_HATCH_WOBBLE_MS = 400; // suspense beat on the resting egg (raw frame 0, not part of egg_hatch's own body array) before cracking starts, sliding side to side
@@ -116,23 +134,35 @@ const EVO_WALKOFF_DISTANCE_PX = 100; // comfortably past a tile's sprite-area wi
 const EVO_GONE_MS = 250; // empty beat once it's off-tile, before the egg appears
 const EVO_EGG_APPEAR_MS = 450; // holds on the new egg before handing back to normal play
 
-// Coin-rain timings — one drop per point gotchiPts went up by, capped so
-// a big distribute still reads as "a lot of coins" without going on
-// forever. Coins spawn faster than they fall (SPAWN < FALL), so several
-// are always mid-fall together — that overlap is what makes it read as
-// rain instead of a metronome of single coins. Shortened along with the
-// evolution timings above (was 12/100/650, a ~1.75s worst case) — this
-// only ever runs on a multi-stage distribute's FIRST write (see
-// useClassroomStore.js's distributeOneStudent), sharing that same step's
-// budget with the evolution/hatch that follows it, so it needed to shrink
-// too: worst case now (8-1)*70+450 = 940ms.
+// Coin-rain timings — one drop per point gotchiPts went up by IN THIS ONE
+// JOB (not the whole distribute — see the file header), capped so a big
+// single step still reads as "a lot of coins" without going on forever.
+// Coins spawn faster than they fall (SPAWN < FALL), so several are always
+// mid-fall together — that overlap is what makes it read as rain instead
+// of a metronome of single coins.
 const RAIN_MAX_DROPS = 8;
 const RAIN_SPAWN_INTERVAL_MS = 70; // stagger between coins starting to fall
 const RAIN_FALL_MS = 450; // how long one coin takes to fall through the tile
 const RAIN_SPREAD_PX = 70; // horizontal jitter range each coin's fall path is randomized within
 
+// One "climb" segment of the growth meter's job-driven animation (see
+// runMeterJob) — how long it takes to animate from wherever it's sitting
+// up to a target fraction. A job that crosses a stage uses two of these
+// (climb to full, then — after an instant reset — climb to the leftover);
+// a job that doesn't just uses one.
+const METER_CLIMB_MS = 700;
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 0-1 progress toward the next growth stage, computed straight from a
+// job's own snapshot ({stage, tamaId, gotchiPts, growthConsumedPts,
+// lifetimePts} — see the file header) rather than growth.js's meterFraction
+// (which expects a full progress object) — a job only ever carries these
+// few plain fields.
+function snapshotFraction(snapshot) {
+  return Math.max(0, Math.min(1, (snapshot.lifetimePts - snapshot.growthConsumedPts) / POINTS_PER_GROWTH));
 }
 
 // Grass-and-tree background for occupied tiles (empty slots stay plain —
@@ -207,48 +237,22 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
   const { stage, tamaId } = growth.currentTama; // deliberately the growing tama, not the display tama — see file header
   const isEgg = stage === 'egg';
 
-  // --- Meter fill: reset-then-refill instead of draining backward ----------
-  // A multi-stage distribute's FIRST write (useClassroomStore.js's
-  // distributeOneStudent) lands the student's full earned total at once but
-  // only advances growthConsumedPts by ONE stage's worth — so the meter
-  // legitimately overflows past 100% (clamped) for however many further
-  // stages are still queued, then DROPS to the real leftover once a later
-  // write catches growthConsumedPts up. Left alone, the existing width
-  // transition animates that drop as a smooth shrink — reads as the meter
-  // draining backward. Real growth-meter/EXP-bar behavior (think a Pokémon
-  // EXP bar after a level-up) resets to 0 instantly and fills UP from
-  // there instead, so: whenever the real fraction comes in LOWER than what
-  // was last shown — which, since lifetimePts/growthConsumedPts only ever
-  // move forward, can only mean a stage's worth just got consumed, never an
-  // actual decrease — snap the bar to 0 with no transition, then (a frame
-  // later, so the browser actually paints that 0% first) re-enable the
-  // transition and let it climb normally to the real value.
-  const prevFractionRef = useRef(fraction);
-  const [meterDisplay, setMeterDisplay] = useState({ fraction, instant: false });
-  useEffect(() => {
-    const prevFraction = prevFractionRef.current;
-    prevFractionRef.current = fraction;
-    if (fraction < prevFraction - 0.0001) {
-      // Guard against float noise with a tiny epsilon — an exact repeat
-      // shouldn't count as "decreased".
-      setMeterDisplay({ fraction: 0, instant: true });
-      const raf1 = requestAnimationFrame(() => {
-        requestAnimationFrame(() => setMeterDisplay({ fraction, instant: false }));
-      });
-      return () => cancelAnimationFrame(raf1);
-    }
-    setMeterDisplay({ fraction, instant: false });
-  }, [fraction]);
-
-  // --- Evolution overlay / coin rain ---------------------------------------
-  // See the file header for the full picture. prevSnapshotRef remembers
-  // what was showing last render (now including gotchiPts, not just
-  // stage/tamaId); when either changes we still have the OLD identity in
-  // hand (needed for the cycle/shake beats, which show the pet that's
-  // ABOUT to transform, not the new one) before kicking off the sequence.
-  // `evo` is null during normal play.
+  // --- Job queue: coin rain / meter / evolution ---------------------------
+  // See the file header for the full picture. `evo` (the sprite overlay)
+  // and `meterDisplay` (the growth meter's own animated position) are both
+  // driven by whatever job the queue is currently playing — null/live-prop-
+  // driven whenever the queue is empty. prevSnapshotRef remembers the props
+  // as of the LAST detected change (not the last one PLAYED — a snapshot
+  // is captured the instant it's seen, whether or not the queue has gotten
+  // around to animating it yet), so a burst of realtime events still chains
+  // into correctly-ordered jobs (each one's "before" is exactly the
+  // previous one's "after") no matter how the processor's pace compares to
+  // how fast they arrived.
   const prevSnapshotRef = useRef(null);
+  const queueRef = useRef([]); // FIFO of {oldSnapshot, newSnapshot} jobs waiting to play
+  const processingRef = useRef(false);
   const [evo, setEvo] = useState(null);
+  const [meterDisplay, setMeterDisplay] = useState(() => ({ fraction, instant: false }));
 
   // Cycles walking_forward's 2 body frames in place — no position movement
   // (this is a static tile, not the roaming island), just a "still alive"
@@ -271,45 +275,47 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
     return () => clearInterval(id);
   }, [evo]);
 
-  useEffect(() => {
-    const prev = prevSnapshotRef.current;
-    const isInitialMount = prev == null;
-    const tamaChanged = !isInitialMount && (prev.tamaId !== tamaId || prev.stage !== stage);
-    // Only an INCREASE plays the coin rain — a deduction (or the
-    // initial mount) doesn't get one. Not clamped to student.gotchiPts
-    // moving at all here — see RAIN_MAX_DROPS below for how a big jump is
-    // capped, not this.
-    const ptsDelta = !isInitialMount && student.gotchiPts > prev.gotchiPts ? student.gotchiPts - prev.gotchiPts : 0;
-    prevSnapshotRef.current = { stage, tamaId, gotchiPts: student.gotchiPts };
-    if (!tamaChanged && ptsDelta === 0) return;
-
-    let cancelled = false;
-    const isCancelled = () => cancelled;
-    async function run() {
-      if (ptsDelta > 0) {
-        await runCoinRain(prev, ptsDelta, isCancelled, setEvo);
-        if (isCancelled()) return;
-      }
-      if (tamaChanged) {
-        // adult -> a fresh egg (the one path that ever lands back on
-        // 'egg' from something other than an egg) gets its own wave/
-        // walk-off sequence instead of the generic cycle/shake/flash one
-        // — see the file header.
-        const sequence = stage === 'egg' && prev.stage !== 'egg' ? runNewCycleSequence(prev, isCancelled, setEvo) : runEvolution(prev, isCancelled, setEvo);
-        await sequence;
-      }
+  // Drains queueRef one job at a time, always awaiting a job's FULL reveal
+  // (sprite + meter together) before starting the next — see runJob below.
+  // Idempotent/re-entrant safe: called every time something new is queued,
+  // but processingRef means only one drain loop is ever actually running;
+  // whichever call finds the queue non-empty and processingRef false just
+  // keeps going until it's drained everything, including anything pushed
+  // on WHILE it was working.
+  async function processQueue() {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    while (queueRef.current.length > 0) {
+      const job = queueRef.current.shift();
+      await runJob(job, setEvo, setMeterDisplay);
     }
-    run().then(() => {
-      if (!cancelled) setEvo(null);
-    });
-    return () => {
-      cancelled = true;
+    processingRef.current = false;
+  }
+
+  useEffect(() => {
+    const newSnapshot = {
+      stage,
+      tamaId,
+      gotchiPts: student.gotchiPts,
+      growthConsumedPts: growth.growthConsumedPts,
+      lifetimePts: student.lifetimePts ?? student.gotchiPts,
     };
-    // Only re-run when the growing tama's identity or gotchiPts actually
-    // changes — intentionally not depending on setEvo (stable) or the
-    // functions above (module-level, pure).
+    const prev = prevSnapshotRef.current;
+    prevSnapshotRef.current = newSnapshot;
+    if (prev == null) return; // initial mount — this render already shows it correctly, nothing to animate
+
+    const tamaChanged = prev.tamaId !== newSnapshot.tamaId || prev.stage !== newSnapshot.stage;
+    const ptsIncreased = newSnapshot.gotchiPts > prev.gotchiPts;
+    const growthAdvanced = newSnapshot.growthConsumedPts > prev.growthConsumedPts;
+    if (!tamaChanged && !ptsIncreased && !growthAdvanced) return; // e.g. a pure deduction — nothing to play
+
+    queueRef.current.push({ oldSnapshot: prev, newSnapshot });
+    processQueue();
+    // Only re-run when something in the snapshot actually changes —
+    // intentionally not depending on setEvo/setMeterDisplay (both stable)
+    // or processQueue/runJob (pure aside from those stable setters).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, tamaId, student.gotchiPts]);
+  }, [stage, tamaId, student.gotchiPts, growth.growthConsumedPts, student.lifetimePts]);
 
   const eggFrameIdx = animFrame % EGG_ROCK.body.length;
   const normalFrames = isEgg
@@ -329,9 +335,12 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
 
   // While evolving, override what's shown — see evoSpriteFor below for the
   // per-phase logic (which pet, which pose, whether it's shaking/walking,
-  // or (the 'gone' phase, adult->new-egg only) hidden entirely).
+  // or (the 'gone' phase, adult->new-egg only) hidden entirely). Reads the
+  // CURRENT job's own oldTama/newTama (carried on `evo` itself), not live
+  // props — while an earlier job is still animating, live props may
+  // already reflect a LATER job's result.
   const showing = evo
-    ? evoSpriteFor(evo, isEgg, tamaId)
+    ? evoSpriteFor(evo)
     : { tamaId: isEgg ? 'egg' : tamaId, frames: normalFrames, mirrored: normalMirrored, faceOffset: normalFaceOffset, shakeX: 0, walkX: 0 };
 
   // Full opacity through both flashIn and the flashHold beat (the "swap
@@ -402,17 +411,81 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
   );
 });
 
-// One drop per point gotchiPts went up by (capped at RAIN_MAX_DROPS),
-// each falling independently — playAddPoint() firing the moment a drop
-// starts, so a big award reads as a rapid-fire shower of successive coin
-// sounds rather than one lump-sum beep. A single rAF loop drives every
-// drop's fall at once (each drop's own progress computed from how long
-// ago IT spawned, not a shared clock) rather than awaiting one drop
-// before starting the next — that overlap is the whole "rain" effect.
-// Same manual-per-frame-value approach as the shake/wobble beats above
-// (see their own comments for why: already smooth frame by frame, a CSS
-// transition would just add lag on top).
-async function runCoinRain(oldTama, delta, isCancelled, setEvo) {
+// Runs ONE queued job's ENTIRE reveal (sprite + meter, together) and
+// resolves only once both are fully finished — see StudentTile's
+// processQueue, which awaits this once per job before starting the next.
+// No cancellation to worry about here: the queue guarantees jobs never
+// overlap, so each one always gets to play out completely.
+async function runJob({ oldSnapshot, newSnapshot }, setEvo, setMeterDisplay) {
+  const tamaChanged = oldSnapshot.tamaId !== newSnapshot.tamaId || oldSnapshot.stage !== newSnapshot.stage;
+  const ptsDelta = newSnapshot.gotchiPts > oldSnapshot.gotchiPts ? newSnapshot.gotchiPts - oldSnapshot.gotchiPts : 0;
+  const growthAdvanced = newSnapshot.growthConsumedPts > oldSnapshot.growthConsumedPts;
+
+  const tasks = [runMeterJob(oldSnapshot, newSnapshot, growthAdvanced, setMeterDisplay)];
+  if (ptsDelta > 0 || tamaChanged) tasks.push(runSpriteJob(oldSnapshot, newSnapshot, tamaChanged, ptsDelta, setEvo));
+  await Promise.all(tasks);
+  setEvo(null); // back to normal play until the next job (if any) starts
+}
+
+// Animates the growth meter for one job. A plain points-only job (no
+// stage crossed) just climbs directly from wherever it's sitting to the
+// new fraction. A job that DID cross a stage always plays climb-to-full,
+// instant-reset, climb-to-leftover — regardless of what the raw before/
+// after fraction NUMBERS happen to be (an exact multiple of
+// POINTS_PER_GROWTH lands the leftover back at the same fraction it
+// started at, which is exactly why this can't be driven by comparing
+// values: the journey is real even when the destination coincides with
+// the origin — see the file header for the concrete "10 points" example).
+async function runMeterJob(oldSnapshot, newSnapshot, growthAdvanced, setMeterDisplay) {
+  const newFraction = snapshotFraction(newSnapshot);
+  if (!growthAdvanced) {
+    setMeterDisplay({ fraction: newFraction, instant: false });
+    await sleep(METER_CLIMB_MS);
+    return;
+  }
+  setMeterDisplay({ fraction: 1, instant: false });
+  await sleep(METER_CLIMB_MS);
+  setMeterDisplay({ fraction: 0, instant: true });
+  // Double rAF: waits for the browser to actually PAINT the instant reset
+  // before the next line re-enables the transition — otherwise React/the
+  // browser can coalesce both style changes into one paint and it'd just
+  // animate straight from full to the leftover, skipping the reset.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  setMeterDisplay({ fraction: newFraction, instant: false });
+  await sleep(METER_CLIMB_MS);
+}
+
+// The sprite half of a job: coin rain (if this job's own points went up —
+// see the file header for why this no longer needs to be suppressed on
+// later jobs) then the evolution/hatch/wave-off sequence (if this job's
+// own tama identity changed).
+async function runSpriteJob(oldSnapshot, newSnapshot, tamaChanged, ptsDelta, setEvo) {
+  if (ptsDelta > 0) {
+    await runCoinRain(oldSnapshot, ptsDelta, setEvo);
+  }
+  if (tamaChanged) {
+    // adult -> a fresh egg (the one path that ever lands back on 'egg'
+    // from something other than an egg) gets its own wave/walk-off
+    // sequence instead of the generic cycle/shake/flash one — see the
+    // file header.
+    const sequence = newSnapshot.stage === 'egg' && oldSnapshot.stage !== 'egg'
+      ? runNewCycleSequence(oldSnapshot, newSnapshot, setEvo)
+      : runEvolution(oldSnapshot, newSnapshot, setEvo);
+    await sequence;
+  }
+}
+
+// One drop per point gotchiPts went up by in THIS job (capped at
+// RAIN_MAX_DROPS), each falling independently — playAddPoint() firing the
+// moment a drop starts, so a big step reads as a rapid-fire shower of
+// successive coin sounds rather than one lump-sum beep. A single rAF loop
+// drives every drop's fall at once (each drop's own progress computed
+// from how long ago IT spawned, not a shared clock) rather than awaiting
+// one drop before starting the next — that overlap is the whole "rain"
+// effect. Same manual-per-frame-value approach as the shake/wobble beats
+// below (see their own comments for why: already smooth frame by frame,
+// a CSS transition would just add lag on top).
+async function runCoinRain(oldTama, delta, setEvo) {
   const dropCount = Math.min(delta, RAIN_MAX_DROPS);
   // Each drop's horizontal jitter and spawn offset are fixed up front so
   // they don't change frame to frame — only x is randomized (not y/timing),
@@ -428,7 +501,6 @@ async function runCoinRain(oldTama, delta, isCancelled, setEvo) {
   await new Promise((resolve) => {
     const start = performance.now();
     function frame(ts) {
-      if (isCancelled()) return resolve();
       const elapsed = ts - start;
 
       const drops = [];
@@ -444,7 +516,7 @@ async function runCoinRain(oldTama, delta, isCancelled, setEvo) {
         const opacity = t < 0.12 ? t / 0.12 : t > 0.8 ? Math.max(0, (1 - t) / 0.2) : 1; // quick fade in, hold, fade out near the ground
         drops.push({ id: d.id, x: d.x, y, opacity });
       }
-      setEvo({ phase: 'coinRain', oldTama, drops });
+      setEvo({ phase: 'coinRain', oldTama, newTama: oldTama, drops });
 
       if (elapsed >= totalMs) {
         resolve();
@@ -457,11 +529,13 @@ async function runCoinRain(oldTama, delta, isCancelled, setEvo) {
 }
 
 // Runs the ported triggerEvolve() choreography, pushing each beat into
-// setEvo as it happens (the caller renders off that state). oldTama is
-// {stage, tamaId} captured right before the change — that's what the
-// cycle/shake/hatch beats show, since they're meant to be the pet
-// transforming, not the result.
-async function runEvolution(oldTama, isCancelled, setEvo) {
+// setEvo as it happens (the caller renders off that state). oldTama/
+// newTama are this job's own before/after snapshots — the cycle/shake/
+// hatch beats show oldTama (the pet transforming, not the result); the
+// flashHold/flashOut/celebrate beats show newTama, NOT live props, since
+// live props may already reflect a LATER queued job's result while this
+// one is still playing.
+async function runEvolution(oldTama, newTama, setEvo) {
   if (oldTama.stage === 'egg') {
     // Suspense beat before cracking starts: the resting egg (raw frame 0,
     // not part of egg_hatch's own [2,3,4] body array) wobbles side to
@@ -469,40 +543,35 @@ async function runEvolution(oldTama, isCancelled, setEvo) {
     await new Promise((resolve) => {
       const start = performance.now();
       function frame(ts) {
-        if (isCancelled()) return resolve();
         const elapsed = ts - start;
         if (elapsed >= EVO_HATCH_WOBBLE_MS) {
           resolve();
           return;
         }
         const shakeX = Math.sin((elapsed / 90) * Math.PI * 2) * 3;
-        setEvo({ phase: 'hatchWobble', oldTama, shakeX });
+        setEvo({ phase: 'hatchWobble', oldTama, newTama, shakeX });
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
     });
-    if (isCancelled()) return;
 
     // Play the real hatch crack/burst frames (egg_hatch — see
     // animationStates.json) instead of the idle/happy cycle an egg has no
     // face for. Same per-frame timing IslandView uses for its own
     // one-shot hatch playback.
-    for (let i = 0; i < EGG_HATCH.body.length && !isCancelled(); i++) {
-      setEvo({ phase: 'hatch', oldTama, hatchFrameIdx: i });
+    for (let i = 0; i < EGG_HATCH.body.length; i++) {
+      setEvo({ phase: 'hatch', oldTama, newTama, hatchFrameIdx: i });
       await sleep(EVO_HATCH_FRAME_MS);
     }
-    if (isCancelled()) return;
   } else {
-    for (let i = 0; i < EVO_CYCLE_STEPS && !isCancelled(); i++) {
-      setEvo({ phase: 'cycle', oldTama, cycleIdx: i });
+    for (let i = 0; i < EVO_CYCLE_STEPS; i++) {
+      setEvo({ phase: 'cycle', oldTama, newTama, cycleIdx: i });
       await sleep(EVO_CYCLE_STEP_MS);
     }
-    if (isCancelled()) return;
 
     await new Promise((resolve) => {
       const start = performance.now();
       function frame(ts) {
-        if (isCancelled()) return resolve();
         const elapsed = ts - start;
         if (elapsed >= EVO_SHAKE_MS) {
           resolve();
@@ -511,31 +580,27 @@ async function runEvolution(oldTama, isCancelled, setEvo) {
         // Same sine shape as the original's shake, scaled down (*3 vs *4)
         // for this tile's smaller size.
         const shakeX = Math.sin((elapsed / 60) * Math.PI * 2) * 3;
-        setEvo({ phase: 'shake', oldTama, shakeX });
+        setEvo({ phase: 'shake', oldTama, newTama, shakeX });
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
     });
-    if (isCancelled()) return;
   }
 
-  setEvo({ phase: 'flashIn', oldTama });
+  setEvo({ phase: 'flashIn', oldTama, newTama });
   await sleep(EVO_FLASH_IN_MS);
-  if (isCancelled()) return;
 
   // Hold at full white for a beat — the suspenseful pause right before the
   // reveal. The new pet is already what's rendered underneath from here on
   // (see evoSpriteFor), just fully hidden until flashOut fades the white
   // back down.
-  setEvo({ phase: 'flashHold', oldTama });
+  setEvo({ phase: 'flashHold', oldTama, newTama });
   await sleep(EVO_FLASH_HOLD_MS);
-  if (isCancelled()) return;
 
-  setEvo({ phase: 'flashOut', oldTama });
+  setEvo({ phase: 'flashOut', oldTama, newTama });
   await sleep(EVO_FLASH_OUT_MS);
-  if (isCancelled()) return;
 
-  setEvo({ phase: 'celebrate', oldTama });
+  setEvo({ phase: 'celebrate', oldTama, newTama });
   await sleep(EVO_CELEBRATE_MS);
 }
 
@@ -543,16 +608,14 @@ async function runEvolution(oldTama, isCancelled, setEvo) {
 // adult waves, walks off the tile, and once it's gone the new egg just
 // appears. See the file header for why this is separate from
 // runEvolution. oldTama is the completed adult (still has a real tamaId,
-// unlike egg->baby's oldTama).
-async function runNewCycleSequence(oldTama, isCancelled, setEvo) {
-  setEvo({ phase: 'wave', oldTama });
+// unlike egg->baby's oldTama); newTama is always a fresh egg here.
+async function runNewCycleSequence(oldTama, newTama, setEvo) {
+  setEvo({ phase: 'wave', oldTama, newTama });
   await sleep(EVO_WAVE_MS);
-  if (isCancelled()) return;
 
   await new Promise((resolve) => {
     const start = performance.now();
     function frame(ts) {
-      if (isCancelled()) return resolve();
       const elapsed = ts - start;
       if (elapsed >= EVO_WALKOFF_MS) {
         resolve();
@@ -560,20 +623,18 @@ async function runNewCycleSequence(oldTama, isCancelled, setEvo) {
       }
       const walkX = (elapsed / EVO_WALKOFF_MS) * EVO_WALKOFF_DISTANCE_PX;
       const walkStep = Math.floor(elapsed / EVO_WALK_STEP_MS);
-      setEvo({ phase: 'walkoff', oldTama, walkX, walkStep });
+      setEvo({ phase: 'walkoff', oldTama, newTama, walkX, walkStep });
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
   });
-  if (isCancelled()) return;
 
   // Fully off-tile now (clipped by the tile's own overflow:hidden) — a
   // beat of nothing before the new egg shows up.
-  setEvo({ phase: 'gone', oldTama });
+  setEvo({ phase: 'gone', oldTama, newTama });
   await sleep(EVO_GONE_MS);
-  if (isCancelled()) return;
 
-  setEvo({ phase: 'eggAppear', oldTama });
+  setEvo({ phase: 'eggAppear', oldTama, newTama });
   await sleep(EVO_EGG_APPEAR_MS);
 }
 
@@ -583,25 +644,16 @@ async function runNewCycleSequence(oldTama, isCancelled, setEvo) {
 // shaking, the resting egg sliding side to side during hatchWobble, the
 // live egg_hatch frame while hatching, a happy pose while waving, walking
 // frames while sliding off); flashHold/flashOut/celebrate/eggAppear show
-// the NEW one (current isEgg/tamaId — the actual props the tile was
-// passed, already updated by the time the sequence gets here); 'gone' is
-// hidden entirely.
-function evoSpriteFor(evo, isEgg, tamaId) {
-  const { phase, oldTama, cycleIdx = 0, shakeX = 0, hatchFrameIdx = 0, walkX = 0, walkStep = 0 } = evo;
+// the NEW one — this job's own newTama (see the file header for why not
+// live props); 'gone' is hidden entirely.
+function evoSpriteFor(evo) {
+  const { phase, oldTama, newTama, cycleIdx = 0, shakeX = 0, hatchFrameIdx = 0, walkX = 0, walkStep = 0 } = evo;
   const showingOld = phase === 'cycle' || phase === 'shake' || phase === 'hatch' || phase === 'flashIn';
 
   if (phase === 'coinRain') {
-    // Shows oldTama, NOT the isEgg/tamaId params — bug fix: those params
-    // are the tile's CURRENT props, which by this point already reflect
-    // the post-distribute result (growth/tamaId update in the same write
-    // pendingPts/gotchiPts do), not what the student had a moment ago.
-    // Using them here meant the coin rain flashed the NEW tama in first,
-    // then the evolution sequence's own (correctly oldTama-based) phases
-    // snapped back to the OLD one right after — exactly the "new tama,
-    // then the old one reappears" glitch this fixes. `rainDrops` tells
-    // the tile which falling coins to render on top (see coinDropStyle)
-    // — already-positioned {id,x,y,opacity} objects, nothing left to
-    // compute in the render itself.
+    // `rainDrops` tells the tile which falling coins to render on top (see
+    // coinDropStyle) — already-positioned {id,x,y,opacity} objects,
+    // nothing left to compute in the render itself.
     const base = oldTama.stage === 'egg'
       ? { tamaId: 'egg', frames: { body: 0, eyes: 0, mouth: 0 }, mirrored: false, faceOffset: undefined }
       : { tamaId: oldTama.tamaId, frames: { body: IDLE.body[0], eyes: IDLE.eyes[0], mouth: IDLE.mouth[0] }, mirrored: false, faceOffset: { x: 0, y: 0 } };
@@ -656,13 +708,14 @@ function evoSpriteFor(evo, isEgg, tamaId) {
     };
   }
 
-  // flashHold / flashOut / celebrate — the new pet.
-  if (isEgg) {
+  // flashHold / flashOut / celebrate — the new pet, from this job's own
+  // newTama.
+  if (newTama.stage === 'egg') {
     return { tamaId: 'egg', frames: { body: 0, eyes: 0, mouth: 0 }, mirrored: false, faceOffset: undefined, shakeX: 0 };
   }
   const pose = phase === 'celebrate' ? HAPPY : IDLE;
   return {
-    tamaId,
+    tamaId: newTama.tamaId,
     frames: { body: pose.body[0], eyes: pose.eyes[0], mouth: pose.mouth[0] },
     mirrored: false,
     faceOffset: { x: 0, y: 0 },
