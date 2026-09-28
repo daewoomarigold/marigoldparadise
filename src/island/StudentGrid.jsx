@@ -207,6 +207,39 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
   const { stage, tamaId } = growth.currentTama; // deliberately the growing tama, not the display tama — see file header
   const isEgg = stage === 'egg';
 
+  // --- Meter fill: reset-then-refill instead of draining backward ----------
+  // A multi-stage distribute's FIRST write (useClassroomStore.js's
+  // distributeOneStudent) lands the student's full earned total at once but
+  // only advances growthConsumedPts by ONE stage's worth — so the meter
+  // legitimately overflows past 100% (clamped) for however many further
+  // stages are still queued, then DROPS to the real leftover once a later
+  // write catches growthConsumedPts up. Left alone, the existing width
+  // transition animates that drop as a smooth shrink — reads as the meter
+  // draining backward. Real growth-meter/EXP-bar behavior (think a Pokémon
+  // EXP bar after a level-up) resets to 0 instantly and fills UP from
+  // there instead, so: whenever the real fraction comes in LOWER than what
+  // was last shown — which, since lifetimePts/growthConsumedPts only ever
+  // move forward, can only mean a stage's worth just got consumed, never an
+  // actual decrease — snap the bar to 0 with no transition, then (a frame
+  // later, so the browser actually paints that 0% first) re-enable the
+  // transition and let it climb normally to the real value.
+  const prevFractionRef = useRef(fraction);
+  const [meterDisplay, setMeterDisplay] = useState({ fraction, instant: false });
+  useEffect(() => {
+    const prevFraction = prevFractionRef.current;
+    prevFractionRef.current = fraction;
+    if (fraction < prevFraction - 0.0001) {
+      // Guard against float noise with a tiny epsilon — an exact repeat
+      // shouldn't count as "decreased".
+      setMeterDisplay({ fraction: 0, instant: true });
+      const raf1 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setMeterDisplay({ fraction, instant: false }));
+      });
+      return () => cancelAnimationFrame(raf1);
+    }
+    setMeterDisplay({ fraction, instant: false });
+  }, [fraction]);
+
   // --- Evolution overlay / coin rain ---------------------------------------
   // See the file header for the full picture. prevSnapshotRef remembers
   // what was showing last render (now including gotchiPts, not just
@@ -353,7 +386,13 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
       </div>
       <div style={nameStyle}>{student.name}</div>
       <div style={meterTrackStyle} title={`${Math.round(fraction * POINTS_PER_GROWTH)}/${POINTS_PER_GROWTH} pts to next stage`}>
-        <div style={{ ...meterFillStyle, width: `${fraction * 100}%` }} />
+        <div
+          style={{
+            ...meterFillStyle,
+            width: `${meterDisplay.fraction * 100}%`,
+            ...(meterDisplay.instant ? { transition: 'none' } : null),
+          }}
+        />
       </div>
       <div style={ptsStyle}>
         <img src={COIN_URL} alt="" style={coinIconStyle} />

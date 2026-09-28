@@ -57,17 +57,16 @@ function rowToStudent(row) {
 }
 
 // Gap between successive per-growth-stage writes a multi-stage distribute
-// makes (see distributeOneStudent below). Originally 9s (safe against the
-// evolution choreography's ORIGINAL, longer timings); StudentGrid.jsx's
-// EVO_* timings were shortened to match once this came down to 4s, so a
-// full reveal (worst case: ~940ms coin shower — first step only — + a
-// ~2.8s hatch or ~2.6s generic evolution) still finishes with a few
-// hundred ms to spare before the next write lands. Keep the two in sync:
-// if either side's timings change again, re-check that this still comes
-// in under EVOLUTION_STEP_GAP_MS, or the tile's own cancellation logic (a
-// newer prop change interrupts whatever reveal is still running) will cut
-// a reveal off mid-play.
-const EVOLUTION_STEP_GAP_MS = 4000;
+// makes (see distributeOneStudent below). The reveal itself (worst case:
+// ~940ms coin shower — first step only — + a ~2.8s hatch or ~2.6s generic
+// evolution, so ~3.7s tops) only needs ~4s to never get cut short; bumped
+// up from that floor to 5.5s for more breathing room between stages, per
+// Taylor's request, not because anything actually needs it. If
+// StudentGrid.jsx's EVO_* timings change again, re-check that they still
+// comes in under this, or the tile's own cancellation logic (a newer prop
+// change interrupts whatever reveal is still running) will cut a reveal
+// off mid-play.
+const EVOLUTION_STEP_GAP_MS = 5500;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
