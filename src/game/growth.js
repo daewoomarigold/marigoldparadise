@@ -116,12 +116,10 @@ export function allAdults() {
 }
 
 // The one baby species + all 3 toddlers (one per biome) — every early-stage
-// form a student can pick as their field display tama. Unlike adults,
-// these don't need to be "collected" first: every student passes through
-// the SAME baby and the SAME 3 toddlers on every single growth cycle, so
-// there's nothing to gate on — they're just always-available choices, per
-// the request that added this ("let students pick a baby/toddler form for
-// their field tama too, not just completed adults").
+// form a student can pick as their field display tama, PROVIDED they've
+// actually reached it at least once — see visitedEarlyStageIds below,
+// which is what a picker (TamadexToast.jsx, TeacherDashboard.jsx) filters
+// this list against, the same way growth.tamadex gates allAdults.
 export function allBabiesAndToddlers() {
   return [
     { tamaId: chart.baby.tamaId, name: chart.baby.name, stage: 'baby' },
@@ -129,10 +127,41 @@ export function allBabiesAndToddlers() {
   ];
 }
 
+// Which baby/toddler tamaIds a student has actually reached at least once
+// — gates allBabiesAndToddlers the same way growth.tamadex gates
+// allAdults, so a toddler a student hasn't grown into yet can't be picked
+// as a display tama just because every student technically COULD reach it
+// eventually.
+//
+// Unions in a defensive backfill for anything visitedEarlyStages doesn't
+// already know about, since it didn't exist before this feature: if
+// they're past egg at all, they were baby at least once (baby's tamaId
+// never changes cycle to cycle, so which cycle doesn't matter); and
+// currentTama.toddlerId survives all the way through teen/adult (see
+// advanceGrowth), so THIS cycle's toddler is recoverable even for a
+// student who's already grown past it. What this can't recover: a
+// student who's cycled through MULTIPLE eggs before this feature existed
+// only has their latest cycle's toddler on record — earlier cycles'
+// picks are genuinely lost. Fine going forward either way, since
+// advanceGrowth records every new one it rolls from here on.
+export function visitedEarlyStageIds(student) {
+  const { growth } = student;
+  const visited = new Set(growth.visitedEarlyStages ?? []);
+  const { stage, tamaId, toddlerId } = growth.currentTama;
+  if (stage !== 'egg') visited.add(chart.baby.tamaId);
+  if ((stage === 'baby' || stage === 'toddler') && tamaId != null) visited.add(tamaId);
+  if (toddlerId != null) visited.add(toddlerId);
+  return visited;
+}
+
+function withVisited(visitedEarlyStages, tamaId) {
+  return visitedEarlyStages.includes(tamaId) ? visitedEarlyStages : [...visitedEarlyStages, tamaId];
+}
+
 // Creates a fresh student progression record. tamadex/closedTeens/
-// closedBiomes/secrets persist across growth cycles (a completed adult
-// starts a new baby, but collection history is permanent) — only
-// currentTama resets.
+// closedBiomes/secrets/visitedEarlyStages persist across growth cycles (a
+// completed adult starts a new baby, but collection history is permanent)
+// — only currentTama resets.
 export function newStudentProgress() {
   return {
     currentTama: startEgg(),
@@ -140,6 +169,7 @@ export function newStudentProgress() {
     closedTeens: [], // teen tamaIds fully collected (can't roll again)
     closedBiomes: [], // toddler tamaIds fully collected (can't roll again)
     unlockedSecrets: [], // secret tamaIds unlocked
+    visitedEarlyStages: [], // baby/toddler tamaIds ever reached — see visitedEarlyStageIds
     growthConsumedPts: 0, // how much of lifetimePts has already been spent on growth steps
   };
 }
@@ -161,8 +191,11 @@ function startBaby() {
 // the same call — the design doc's rules are all resolved together, not as
 // a separate "check" step, so there's no window where the state is
 // inconsistent (e.g. a 4th adult logged but the teen not yet marked closed).
+// Landing on baby/toddler also records it into visitedEarlyStages, unlocking
+// it as a display-tama choice from here on (see visitedEarlyStageIds).
 export function advanceGrowth(progress) {
   const { stage } = progress.currentTama;
+  const visitedEarlyStages = progress.visitedEarlyStages ?? []; // old saved data may predate this field
 
   if (stage === 'adult') {
     // Completed — this life is done and stays in tamadex; a new cycle
@@ -171,7 +204,8 @@ export function advanceGrowth(progress) {
   }
 
   if (stage === 'egg') {
-    return { ...progress, currentTama: startBaby() };
+    const baby = startBaby();
+    return { ...progress, currentTama: baby, visitedEarlyStages: withVisited(visitedEarlyStages, baby.tamaId) };
   }
 
   if (stage === 'baby') {
@@ -181,6 +215,7 @@ export function advanceGrowth(progress) {
     return {
       ...progress,
       currentTama: { stage: 'toddler', tamaId: toddler.tamaId, name: toddler.name, toddlerId: toddler.tamaId, teenId: null },
+      visitedEarlyStages: withVisited(visitedEarlyStages, toddler.tamaId),
     };
   }
 

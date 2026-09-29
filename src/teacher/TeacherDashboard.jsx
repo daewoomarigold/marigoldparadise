@@ -29,7 +29,7 @@
 
 import { useRef, useState } from 'react';
 import './teacher.css';
-import { newStudentProgress, meterFraction, findTamaName, allBabiesAndToddlers, POINTS_PER_GROWTH } from '../game/growth.js';
+import { newStudentProgress, meterFraction, findTamaName, allBabiesAndToddlers, visitedEarlyStageIds, POINTS_PER_GROWTH } from '../game/growth.js';
 import { spriteUrl } from '../game/spriteData.js';
 import { playAddPoint } from '../sound.js';
 import { useAuth } from '../auth/useAuth.js';
@@ -653,6 +653,7 @@ function GrowthStatus({ student, onSetDisplayTama }) {
   const growth = student.growth ?? newStudentProgress();
   const fraction = meterFraction(growth, student.lifetimePts ?? student.gotchiPts);
   const { stage, name } = growth.currentTama;
+  const visitedEarly = visitedEarlyStageIds({ growth });
 
   const displayTamaId = student.displayTamaId ?? 'current';
   const displayName = displayTamaId === 'current' ? name : (findTamaName(displayTamaId) ?? name);
@@ -672,13 +673,21 @@ function GrowthStatus({ student, onSetDisplayTama }) {
         onChange={(e) => onSetDisplayTama(e.target.value === 'current' ? 'current' : Number(e.target.value))}
       >
         <option value="current">Currently growing ({stage} · {name})</option>
-        <optgroup label="Baby & toddler forms">
-          {allBabiesAndToddlers().map((t) => (
-            <option key={t.tamaId} value={t.tamaId}>
-              {t.name}
-            </option>
-          ))}
-        </optgroup>
+        {/* Only forms this student has actually reached — see growth.js's
+            visitedEarlyStageIds, the same gate TamadexToast.jsx's picker
+            uses; a toddler they haven't grown into yet isn't listed just
+            because every student could technically reach it eventually. */}
+        {allBabiesAndToddlers().some((t) => visitedEarly.has(t.tamaId)) && (
+          <optgroup label="Baby & toddler forms">
+            {allBabiesAndToddlers()
+              .filter((t) => visitedEarly.has(t.tamaId))
+              .map((t) => (
+                <option key={t.tamaId} value={t.tamaId}>
+                  {t.name}
+                </option>
+              ))}
+          </optgroup>
+        )}
         {growth.tamadex.length > 0 && (
           <optgroup label="Adults">
             {growth.tamadex.map((tamaId) => (

@@ -8,22 +8,23 @@
 // Tamadex tab: a numbered grid of all 48 regular adults (no secrets, per
 // the request that added this: "a numerical list of all adult tamas"),
 // plus a small row of the early-stage forms (the 1 baby + 3 toddlers —
-// see growth.js's allBabiesAndToddlers) above it. Collected adults (in the
-// student's growth.tamadex) show in normal color; uncollected ones show
-// the same sprite silhouetted black via a CSS filter, so the shape/number
-// is visible as a "not yet found" placeholder rather than a blank slot.
-// The early-stage row has no such gating — every student passes through
-// the same baby/toddlers on every cycle, so all 4 are always shown in
-// color and clickable.
+// see growth.js's allBabiesAndToddlers) above it. Both sections gate the
+// same way: collected adults (growth.tamadex) / reached early stages
+// (growth.js's visitedEarlyStageIds) show in normal color; anything not
+// yet reached shows the same sprite silhouetted black via a CSS filter,
+// so the shape/name is visible as a "not yet found" placeholder rather
+// than a blank slot — a toddler a student hasn't actually grown into yet
+// can't be picked just because every student could technically reach it
+// eventually.
 //
-// Clicking a collected adult OR any early-stage form sets it as the
+// Clicking a reached early stage OR a collected adult sets it as the
 // student's display tama (the one shown roaming on the island field — see
 // growth.js's resolveDisplayTama). The current display tama is highlighted
-// yellow with a star, in whichever section it's actually in. Uncollected
-// adults aren't clickable — nothing to display.
+// yellow with a star, in whichever section it's actually in. Anything not
+// yet reached/collected isn't clickable — nothing to display.
 
 import { useState } from 'react';
-import { allAdults, allBabiesAndToddlers, findTamaName, resolveDisplayTama } from '../game/growth.js';
+import { allAdults, allBabiesAndToddlers, findTamaName, resolveDisplayTama, visitedEarlyStageIds } from '../game/growth.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 
 const CELL_SCALE = 1.5; // mini sprites are 32x32 native
@@ -77,6 +78,7 @@ function TamadexTab({ student, onSelectDisplay }) {
   const earlyStages = allBabiesAndToddlers();
   const adults = allAdults();
   const collected = new Set(student.growth.tamadex);
+  const visitedEarly = visitedEarlyStageIds(student);
   const collectedCount = adults.filter((a) => collected.has(a.tamaId)).length;
   const currentDisplayTamaId = resolveDisplayTama(student).tamaId;
 
@@ -88,17 +90,24 @@ function TamadexTab({ student, onSelectDisplay }) {
       <div style={sectionLabelStyle}>Baby &amp; toddler forms</div>
       <div style={{ ...gridStyle, marginBottom: 14 }}>
         {earlyStages.map((t) => {
-          const isDisplayed = t.tamaId === currentDisplayTamaId;
+          const got = visitedEarly.has(t.tamaId);
+          const isDisplayed = got && t.tamaId === currentDisplayTamaId;
           return (
             <div
               key={t.tamaId}
-              role="button"
-              style={{ ...cellStyle, ...(isDisplayed ? cellSelectedStyle : null), cursor: 'pointer' }}
-              title={t.name}
-              onClick={() => onSelectDisplay(t.tamaId)}
+              role={got ? 'button' : undefined}
+              style={{
+                ...cellStyle,
+                ...(isDisplayed ? cellSelectedStyle : null),
+                cursor: got ? 'pointer' : 'default',
+              }}
+              title={got ? t.name : '???'}
+              onClick={got ? () => onSelectDisplay(t.tamaId) : undefined}
             >
               <div style={numStyle}>{isDisplayed && <span style={starStyle}>★</span>}</div>
-              <TamaComposite tamaId={t.tamaId} variant="mini" frames={{ body: 0, eyes: 0, mouth: 0 }} scale={CELL_SCALE} />
+              <div style={{ filter: got ? 'none' : 'brightness(0)', opacity: got ? 1 : 0.6 }}>
+                <TamaComposite tamaId={t.tamaId} variant="mini" frames={{ body: 0, eyes: 0, mouth: 0 }} scale={CELL_SCALE} />
+              </div>
             </div>
           );
         })}
