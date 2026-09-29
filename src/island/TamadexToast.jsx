@@ -169,10 +169,14 @@ const SHOP_CATEGORIES = [
 
 function ShopTab({ student, onBuyAccessory }) {
   const [category, setCategory] = useState('accessories');
+  // The accessory id awaiting a Yes/No confirmation, or null — a click on
+  // a buyable cell opens this instead of purchasing immediately.
+  const [confirmId, setConfirmId] = useState(null);
   const owned = new Set(student.bag);
+  const confirmItem = confirmId != null ? findAccessory(confirmId) : null;
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
       <div style={subTabRowStyle}>
         {SHOP_CATEGORIES.map((c) => (
           <button
@@ -199,7 +203,7 @@ function ShopTab({ student, onBuyAccessory }) {
                   opacity: !got && !canAfford ? 0.5 : 1,
                 }}
                 title={got ? `${item.name} (owned)` : `${item.name} — ★${ACCESSORY_PRICE}`}
-                onClick={!got && canAfford ? () => onBuyAccessory(item.id, ACCESSORY_PRICE) : undefined}
+                onClick={!got && canAfford ? () => setConfirmId(item.id) : undefined}
               >
                 <img src={spriteUrl(accessorySpriteFile(item.id))} alt="" style={itemIconStyle} />
                 <div style={priceStyle}>{got ? 'Owned' : `★${ACCESSORY_PRICE}`}</div>
@@ -210,6 +214,41 @@ function ShopTab({ student, onBuyAccessory }) {
       ) : (
         <ComingSoon label="Customization" />
       )}
+      {confirmItem && (
+        <BuyConfirmDialog
+          item={confirmItem}
+          price={ACCESSORY_PRICE}
+          onConfirm={() => {
+            onBuyAccessory(confirmItem.id, ACCESSORY_PRICE);
+            setConfirmId(null);
+          }}
+          onCancel={() => setConfirmId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// A small Yes/No confirmation overlaid on top of the shop grid — position:
+// absolute against ShopTab's own position:relative wrapper, so it covers
+// just the shop's content area rather than the whole toast.
+function BuyConfirmDialog({ item, price, onConfirm, onCancel }) {
+  return (
+    <div style={confirmBackdropStyle} onClick={onCancel}>
+      <div style={confirmCardStyle} onClick={(e) => e.stopPropagation()}>
+        <img src={spriteUrl(accessorySpriteFile(item.id))} alt="" style={{ ...itemIconStyle, width: 48, height: 48 }} />
+        <div style={confirmTextStyle}>
+          Buy {item.name} for ★{price}?
+        </div>
+        <div style={editorActionsStyle}>
+          <button style={primaryBtnStyle} onClick={onConfirm}>
+            Yes
+          </button>
+          <button style={secondaryBtnStyle} onClick={onCancel}>
+            No
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -576,4 +615,36 @@ const dragFrameStyle = {
   border: '1px solid #2e2e4e',
   borderRadius: 6,
   overflow: 'hidden',
+};
+
+// Covers ShopTab's own content area (its position:relative wrapper), not
+// the whole toast — a click outside the dialog card cancels, same pattern
+// TamadexToast's own outer backdrop uses for its close button.
+const confirmBackdropStyle = {
+  position: 'absolute',
+  inset: 0,
+  background: 'rgba(10, 4, 20, 0.85)',
+  backdropFilter: 'blur(2px)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 8,
+};
+
+const confirmCardStyle = {
+  background: '#22223a',
+  border: '1px solid #4a4a7a',
+  borderRadius: 8,
+  padding: 20,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 10,
+  maxWidth: 220,
+  textAlign: 'center',
+};
+
+const confirmTextStyle = {
+  fontSize: 12,
+  color: '#e0e0f0',
 };
