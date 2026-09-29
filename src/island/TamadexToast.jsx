@@ -271,31 +271,35 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
   const selected = selectedId != null ? findAccessory(selectedId) : null;
 
   return (
-    <div>
-      <div style={sectionLabelStyle}>Your items</div>
-      <div style={{ ...gridStyle, marginBottom: 14 }}>
-        {student.bag.map((id) => {
-          const item = findAccessory(id);
-          if (!item) return null;
-          const isEquipped = equipped?.id === id;
-          const isSelected = selectedId === id;
-          return (
-            <div
-              key={id}
-              role="button"
-              style={{ ...cellStyle, ...(isSelected ? cellSelectedStyle : null), cursor: 'pointer' }}
-              title={item.name}
-              onClick={() => selectItem(id)}
-            >
-              <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
-              <img src={spriteUrl(accessorySpriteFile(id))} alt="" style={itemIconStyle} />
-            </div>
-          );
-        })}
+    <div style={bagLayoutStyle}>
+      <div style={bagItemsColumnStyle}>
+        <div style={sectionLabelStyle}>Your items</div>
+        <div style={bagGridStyle}>
+          {student.bag.map((id) => {
+            const item = findAccessory(id);
+            if (!item) return null;
+            const isEquipped = equipped?.id === id;
+            const isSelected = selectedId === id;
+            return (
+              <div
+                key={id}
+                role="button"
+                style={{ ...cellStyle, ...(isSelected ? cellSelectedStyle : null), cursor: 'pointer' }}
+                title={item.name}
+                onClick={() => selectItem(id)}
+              >
+                <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+                <img src={spriteUrl(accessorySpriteFile(id))} alt="" style={itemIconStyle} />
+              </div>
+            );
+          })}
+        </div>
       </div>
       {selected && (
-        <>
-          <div style={sectionLabelStyle}>Drag {selected.name} onto {student.name}&rsquo;s tama</div>
+        <div style={bagEditorColumnStyle}>
+          <div style={sectionLabelStyle}>
+            Drag {selected.name} onto {student.name}&rsquo;s tama
+          </div>
           <DragFrame stage={stage} tamaId={tamaId} accessoryId={selectedId} pos={pos} onPosChange={setPos} />
           <div style={editorActionsStyle}>
             <button style={primaryBtnStyle} onClick={() => onSetEquippedAccessory({ id: selectedId, x: pos.x, y: pos.y })}>
@@ -307,7 +311,7 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
               </button>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -501,6 +505,37 @@ const gridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(8, 1fr)',
   gap: 8,
+};
+
+// My Bag: items list on the left, the drag-positioning editor fixed to
+// the right of it (per request) — a row instead of the stacked layout
+// the other tabs use.
+const bagLayoutStyle = {
+  display: 'flex',
+  gap: 20,
+  alignItems: 'flex-start',
+};
+
+// Narrower than gridStyle's 8 columns — this list only ever shows OWNED
+// items (typically a handful, not the full 76-item catalog), and it needs
+// to leave room for the editor column beside it rather than stretching
+// the whole toast wider.
+const bagItemsColumnStyle = {
+  flex: 1,
+  minWidth: 0,
+};
+
+const bagGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, 1fr)',
+  gap: 8,
+};
+
+// Fixed width matching DragFrame's own (64 * EDITOR_SCALE) so this column
+// doesn't grow/shrink with the item list beside it.
+const bagEditorColumnStyle = {
+  flexShrink: 0,
+  width: 64 * EDITOR_SCALE,
 };
 
 const cellStyle = {
