@@ -264,8 +264,12 @@ function BuyConfirmDialog({ item, price, onConfirm, onCancel }) {
 
 function MyBagTab({ student, onSetEquippedAccessory }) {
   const equipped = student.equippedAccessory;
-  const [selectedId, setSelectedId] = useState(equipped?.id ?? student.bag[0] ?? null);
-  const [pos, setPos] = useState(equipped ? { x: equipped.x, y: equipped.y } : { x: 0, y: 0 });
+  // Nothing pre-selected on open — the editor only appears once the
+  // student/teacher actually taps an item, rather than jumping straight
+  // into it for whatever happened to be equipped (or the first item in
+  // the bag).
+  const [selectedId, setSelectedId] = useState(null);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
 
   function selectItem(id) {
     setSelectedId(id);
