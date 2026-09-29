@@ -308,24 +308,30 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
           })}
         </div>
       </div>
-      {selected && (
-        <div style={bagEditorColumnStyle}>
-          <div style={sectionLabelStyle}>
-            Drag {selected.name} onto {student.name}&rsquo;s tama
-          </div>
-          <DragFrame stage={stage} tamaId={tamaId} accessoryId={selectedId} pos={pos} onPosChange={setPos} />
-          <div style={editorActionsStyle}>
+      <div style={bagEditorColumnStyle}>
+        <div style={sectionLabelStyle}>
+          {selected ? (
+            <>
+              Drag {selected.name} onto {student.name}&rsquo;s tama
+            </>
+          ) : (
+            'Pick an item to position it'
+          )}
+        </div>
+        <DragFrame stage={stage} tamaId={tamaId} accessoryId={selectedId} pos={pos} onPosChange={setPos} />
+        <div style={editorActionsStyle}>
+          {selected && (
             <button style={primaryBtnStyle} onClick={() => onSetEquippedAccessory({ id: selectedId, x: pos.x, y: pos.y })}>
               Equip here
             </button>
-            {equipped && (
-              <button style={secondaryBtnStyle} onClick={() => onSetEquippedAccessory(null)}>
-                Unequip
-              </button>
-            )}
-          </div>
+          )}
+          {equipped && (
+            <button style={secondaryBtnStyle} onClick={() => onSetEquippedAccessory(null)}>
+              Unequip
+            </button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -379,14 +385,21 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange }) {
           variant="base"
           frames={{ body: 0, eyes: 0, mouth: 0 }}
           scale={EDITOR_SCALE}
-          accessory={{
-            id: accessoryId,
-            x: pos.x,
-            y: pos.y,
-            onPointerDown: handlePointerDown,
-            onPointerMove: handlePointerMove,
-            onPointerUp: handlePointerUp,
-          }}
+          // The tama itself always renders — nothing to drag until an
+          // item's actually picked, so the accessory overlay (and its
+          // handlers) is only attached once accessoryId is set.
+          accessory={
+            accessoryId != null
+              ? {
+                  id: accessoryId,
+                  x: pos.x,
+                  y: pos.y,
+                  onPointerDown: handlePointerDown,
+                  onPointerMove: handlePointerMove,
+                  onPointerUp: handlePointerUp,
+                }
+              : undefined
+          }
         />
       </div>
     </div>
