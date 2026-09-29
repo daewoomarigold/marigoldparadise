@@ -152,15 +152,21 @@ const cardStyle = {
   border: '1px solid #4a4a7a',
   borderRadius: 10,
   padding: 20,
-  // A min-width (not a fixed one) so the card stays a stable size across
-  // tab switches instead of shrinking down for the near-empty Shop/Bag
-  // placeholders — sized to comfortably fit the Tamadex tab's 8-column
-  // adult grid alongside the sidebar, its widest content.
+  // Min-width AND min-height (not fixed ones) so the card stays a stable
+  // size across tab switches instead of shrinking down for the
+  // near-empty Shop/Bag placeholders — sized to comfortably fit the
+  // Tamadex tab's 8-column adult grid alongside the sidebar, its tallest
+  // and widest content. Width alone wasn't enough — Tamadex's several
+  // grid rows vs. Shop/Bag's one line of text is a HEIGHT difference
+  // mostly, not a width one.
   minWidth: 700,
+  minHeight: 620,
   maxWidth: '90vw',
   maxHeight: '85vh',
   fontFamily: 'ui-monospace, monospace',
   color: '#e0e0f0',
+  display: 'flex',
+  flexDirection: 'column',
 };
 
 const headerStyle = {
@@ -176,9 +182,17 @@ const titleStyle = {
   flex: 1,
 };
 
+// Fills whatever's left of cardStyle's height below the header (cardStyle
+// is a column flex container so this flex:1 has somewhere to grow into),
+// so the sidebar and content pane both stretch to the card's full height
+// (flex's default align-items:stretch) regardless of which tab is active
+// — otherwise a short "coming soon" tab would only reserve blank space
+// below it rather than actually filling the space.
 const bodyStyle = {
   display: 'flex',
   gap: 16,
+  flex: 1,
+  minHeight: 0, // lets contentStyle's own overflow:auto work inside a flex column
 };
 
 // Fixed width, doesn't scroll with the content panel — see contentStyle.
@@ -208,18 +222,25 @@ const tabBtnActiveStyle = {
   color: '#e0e0f0',
 };
 
-// The only part that scrolls — the sidebar stays put alongside it.
+// The only part that scrolls — the sidebar stays put alongside it. Fills
+// the full height bodyStyle gives it (stretch, see that style's comment),
+// so ComingSoon's own centering below has real space to center within
+// instead of just sitting at the top.
 const contentStyle = {
   flex: 1,
   minWidth: 0,
-  maxHeight: '70vh',
   overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
 };
 
 const comingSoonStyle = {
+  flex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
   color: '#7070a0',
   fontSize: 12,
-  padding: '24px 0',
   textAlign: 'center',
 };
 
