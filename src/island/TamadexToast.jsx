@@ -44,7 +44,16 @@ import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { spriteUrl } from '../game/spriteData.js';
 
 const CELL_SCALE = 1.5; // mini sprites are 32x32 native
-const EDITOR_SCALE = 4; // My Bag's positioning frame — base sprites are 64x64 native, so this renders at 256x256
+const EDITOR_SCALE = 4; // My Bag's positioning frame — base sprites are 64x64 native, so the tama itself renders at 256x256
+const EDITOR_CHAR_SIZE = 64 * EDITOR_SCALE; // 256 — the tama's own rendered bounding box
+// The drag frame itself is bigger than the tama's bounding box — extra
+// room (split evenly on all sides) to drag an accessory past the tama's
+// own edges, e.g. a hat sitting above the head, per the request that
+// added this. The red rectangle drawn at EDITOR_CHAR_SIZE (see DragFrame)
+// marks where that original bounding box actually is within the bigger
+// frame.
+const EDITOR_FRAME_SIZE = Math.round(EDITOR_CHAR_SIZE * 1.3);
+const EDITOR_FRAME_PADDING = (EDITOR_FRAME_SIZE - EDITOR_CHAR_SIZE) / 2;
 
 const TABS = [
   { id: 'tamadex', label: 'Tamadex' },
@@ -317,8 +326,8 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
   );
 }
 
-// The positioning editor — a fixed-size frame showing the student's field
-// tama at EDITOR_SCALE (base variant, static idle frame) with the selected
+// The positioning editor — a frame showing the student's field tama at
+// EDITOR_SCALE (base variant, static idle frame) with the selected
 // accessory drawn on top, dragged via TamaComposite's own `accessory` prop
 // (passing pointer handlers through it) rather than a second, separately-
 // positioned image — that's what guarantees the position saved here means
@@ -330,6 +339,15 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
 // going even if the pointer moves off the image mid-drag. Reports pos in
 // the same base-resolution pixel units TamaComposite's `accessory` prop
 // expects (dividing the on-screen drag delta by EDITOR_SCALE).
+//
+// The frame itself (EDITOR_FRAME_SIZE) is bigger than the tama's own
+// bounding box (EDITOR_CHAR_SIZE) — extra room on every side so an
+// accessory can be dragged past the tama's own edges (e.g. a hat sitting
+// above the head) instead of getting clipped right at its border. The
+// tama composite is offset by EDITOR_FRAME_PADDING to sit centered in
+// that bigger frame; a red rectangle drawn at the same offset marks
+// exactly where the tama's own bounding box is, so it's clear how far
+// "past the edge" any given drag actually is.
 function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange }) {
   const dragRef = useRef(null); // {startClientX, startClientY, startPosX, startPosY} | null
   const isEgg = stage === 'egg';
@@ -350,20 +368,23 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange }) {
 
   return (
     <div style={dragFrameStyle}>
-      <TamaComposite
-        tamaId={isEgg ? 'egg' : tamaId}
-        variant="base"
-        frames={{ body: 0, eyes: 0, mouth: 0 }}
-        scale={EDITOR_SCALE}
-        accessory={{
-          id: accessoryId,
-          x: pos.x,
-          y: pos.y,
-          onPointerDown: handlePointerDown,
-          onPointerMove: handlePointerMove,
-          onPointerUp: handlePointerUp,
-        }}
-      />
+      <div style={dragFrameBoundsStyle} />
+      <div style={dragFrameCharStyle}>
+        <TamaComposite
+          tamaId={isEgg ? 'egg' : tamaId}
+          variant="base"
+          frames={{ body: 0, eyes: 0, mouth: 0 }}
+          scale={EDITOR_SCALE}
+          accessory={{
+            id: accessoryId,
+            x: pos.x,
+            y: pos.y,
+            onPointerDown: handlePointerDown,
+            onPointerMove: handlePointerMove,
+            onPointerUp: handlePointerUp,
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -387,12 +408,11 @@ const cardStyle = {
   padding: 20,
   // Min-width AND min-height (not fixed ones) so the card stays a stable
   // size across tab switches instead of shrinking down for the
-  // near-empty Shop/Bag placeholders — sized to comfortably fit the
-  // Tamadex tab's 8-column adult grid alongside the sidebar, its tallest
-  // and widest content. Width alone wasn't enough — Tamadex's several
-  // grid rows vs. Shop/Bag's one line of text is a HEIGHT difference
-  // mostly, not a width one.
-  minWidth: 700,
+  // near-empty Shop/Bag placeholders. Width needs to fit whichever tab is
+  // widest — that's now My Bag's items-list + drag-frame row
+  // (EDITOR_FRAME_SIZE, bigger than the tama's own bounding box on
+  // purpose — see DragFrame), not Tamadex's 8-column grid anymore.
+  minWidth: 760,
   minHeight: 620,
   maxWidth: '90vw',
   maxHeight: '85vh',
@@ -531,11 +551,11 @@ const bagGridStyle = {
   gap: 8,
 };
 
-// Fixed width matching DragFrame's own (64 * EDITOR_SCALE) so this column
+// Fixed width matching DragFrame's own (EDITOR_FRAME_SIZE) so this column
 // doesn't grow/shrink with the item list beside it.
 const bagEditorColumnStyle = {
   flexShrink: 0,
-  width: 64 * EDITOR_SCALE,
+  width: EDITOR_FRAME_SIZE,
 };
 
 const cellStyle = {
@@ -637,11 +657,13 @@ const secondaryBtnStyle = {
 };
 
 // Checkerboard-ish background so a mostly-transparent accessory image is
-// still easy to see/grab while dragging.
+// still easy to see/grab while dragging. Sized to EDITOR_FRAME_SIZE (bigger
+// than the tama's own EDITOR_CHAR_SIZE bounding box) — see DragFrame's own
+// comment for why.
 const dragFrameStyle = {
   position: 'relative',
-  width: 64 * EDITOR_SCALE,
-  height: 64 * EDITOR_SCALE,
+  width: EDITOR_FRAME_SIZE,
+  height: EDITOR_FRAME_SIZE,
   background: '#22223a',
   backgroundImage:
     'linear-gradient(45deg, #2a2a44 25%, transparent 25%), linear-gradient(-45deg, #2a2a44 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2a2a44 75%), linear-gradient(-45deg, transparent 75%, #2a2a44 75%)',
@@ -650,6 +672,27 @@ const dragFrameStyle = {
   border: '1px solid #2e2e4e',
   borderRadius: 6,
   overflow: 'hidden',
+};
+
+// Offsets the tama composite (+ its accessory, drawn as part of the same
+// component — see TamaComposite) to sit centered within the bigger frame.
+const dragFrameCharStyle = {
+  position: 'absolute',
+  left: EDITOR_FRAME_PADDING,
+  top: EDITOR_FRAME_PADDING,
+};
+
+// The red boundary rectangle marking the tama's own bounding box within
+// the bigger frame — purely a visual reference, not interactive.
+const dragFrameBoundsStyle = {
+  position: 'absolute',
+  left: EDITOR_FRAME_PADDING,
+  top: EDITOR_FRAME_PADDING,
+  width: EDITOR_CHAR_SIZE,
+  height: EDITOR_CHAR_SIZE,
+  border: '2px solid #ff3b3b',
+  pointerEvents: 'none',
+  boxSizing: 'border-box',
 };
 
 // Covers ShopTab's own content area (its position:relative wrapper), not
