@@ -54,6 +54,16 @@ create table public.students (
   -- or the literal string 'current'".
   display_tama_id text not null default 'current',
   growth jsonb not null,
+  -- Gotchi Shop / My Bag — see src/game/accessories.js for the static
+  -- catalog (image-879.png..image-954.png) these ids index into. `bag` is
+  -- every accessory id a student has ever bought (a Set in practice, no
+  -- quantities — cosmetic unlocks, not consumables). `equipped_accessory`
+  -- is at most ONE of those, plus the free-drag position a student chose
+  -- for it in the My Bag editor: {id, x, y} (x/y are base-resolution
+  -- pixels relative to the tama's body canvas — see spriteCompositor.jsx's
+  -- TamaComposite `accessory` prop), or null for nothing equipped.
+  bag jsonb not null default '[]'::jsonb,
+  equipped_accessory jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

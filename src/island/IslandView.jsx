@@ -550,6 +550,7 @@ export default function IslandView() {
                 scale={SCALE}
                 mirrored={roamer.facingRight}
                 faceOffset={faceOffset}
+                accessory={s.equippedAccessory}
               />
               <NameTag name={s.name} />
             </div>
@@ -566,6 +567,8 @@ export default function IslandView() {
         <TamadexToast
           student={selectedStudent}
           onSelectDisplay={(tamaId) => store.setDisplayTama(selectedStudent.id, tamaId)}
+          onBuyAccessory={(accessoryId, price) => store.buyAccessory(selectedStudent, accessoryId, price)}
+          onSetEquippedAccessory={(equipped) => store.setEquippedAccessory(selectedStudent.id, equipped)}
           onClose={() => setSelectedStudentId(null)}
         />
       )}

@@ -1,9 +1,6 @@
 // Popup shown when a student's tile is clicked — a small sidebar of tabs
 // (Tamadex / Gotchi Shop / My Bag) next to whichever one's content is
-// active. Tamadex is the only one built out so far (see TamadexTab below);
-// Shop and Bag are placeholders for now, per the request that added them
-// — real content (prices/an item shop, an inventory) is a separate,
-// unscoped follow-up.
+// active.
 //
 // Tamadex tab: a numbered grid of all 48 regular adults (no secrets, per
 // the request that added this: "a numerical list of all adult tamas"),
@@ -22,12 +19,32 @@
 // growth.js's resolveDisplayTama). The current display tama is highlighted
 // yellow with a star, in whichever section it's actually in. Anything not
 // yet reached/collected isn't clickable — nothing to display.
+//
+// Gotchi Shop tab: its own secondary tab row — Accessories (built out, see
+// ShopTab/ACCESSORIES in accessories.js) and Customization (a placeholder
+// for now; what actually goes in it hasn't been decided yet). Buying an
+// accessory spends gotchiPts and adds it to the student's bag (see
+// useClassroomStore.js's buyAccessory) — it isn't equipped automatically,
+// that happens in My Bag.
+//
+// My Bag tab: a grid of owned accessories: pick one to open the
+// positioning editor below it, a drag-anywhere frame showing the
+// student's own field tama with that accessory overlaid (see
+// spriteCompositor.jsx's TamaComposite `accessory` prop) — drag it where
+// you want, then "Equip here" saves that exact position and equips it
+// (useClassroomStore.js's setEquippedAccessory), which is what actually
+// makes it show up on the island field. Only one accessory equipped at a
+// time, by design — simpler data model/rendering, easy to revisit later
+// if multiple-at-once turns out to be wanted.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { allAdults, allBabiesAndToddlers, findTamaName, resolveDisplayTama, visitedEarlyStageIds } from '../game/growth.js';
+import { ACCESSORIES, ACCESSORY_PRICE, accessorySpriteFile, findAccessory } from '../game/accessories.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
+import { spriteUrl } from '../game/spriteData.js';
 
 const CELL_SCALE = 1.5; // mini sprites are 32x32 native
+const EDITOR_SCALE = 4; // My Bag's positioning frame — base sprites are 64x64 native, so this renders at 256x256
 
 const TABS = [
   { id: 'tamadex', label: 'Tamadex' },
@@ -35,7 +52,7 @@ const TABS = [
   { id: 'bag', label: 'My Bag' },
 ];
 
-export default function TamadexToast({ student, onSelectDisplay, onClose }) {
+export default function TamadexToast({ student, onSelectDisplay, onBuyAccessory, onSetEquippedAccessory, onClose }) {
   const [activeTab, setActiveTab] = useState('tamadex');
 
   return (
@@ -43,6 +60,7 @@ export default function TamadexToast({ student, onSelectDisplay, onClose }) {
       <div style={cardStyle} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
           <div style={titleStyle}>{student.name}&rsquo;s Options</div>
+          <div style={coinBalanceStyle}>★ {student.gotchiPts}</div>
           <button style={closeBtnStyle} onClick={onClose}>
             ✕
           </button>
@@ -61,8 +79,8 @@ export default function TamadexToast({ student, onSelectDisplay, onClose }) {
           </div>
           <div style={contentStyle}>
             {activeTab === 'tamadex' && <TamadexTab student={student} onSelectDisplay={onSelectDisplay} />}
-            {activeTab === 'shop' && <ComingSoon label="Gotchi Shop" />}
-            {activeTab === 'bag' && <ComingSoon label="My Bag" />}
+            {activeTab === 'shop' && <ShopTab student={student} onBuyAccessory={onBuyAccessory} />}
+            {activeTab === 'bag' && <MyBagTab student={student} onSetEquippedAccessory={onSetEquippedAccessory} />}
           </div>
         </div>
       </div>
@@ -140,6 +158,169 @@ function TamadexTab({ student, onSelectDisplay }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+const SHOP_CATEGORIES = [
+  { id: 'accessories', label: 'Accessories' },
+  { id: 'customization', label: 'Customization' },
+];
+
+function ShopTab({ student, onBuyAccessory }) {
+  const [category, setCategory] = useState('accessories');
+  const owned = new Set(student.bag);
+
+  return (
+    <div>
+      <div style={subTabRowStyle}>
+        {SHOP_CATEGORIES.map((c) => (
+          <button
+            key={c.id}
+            style={{ ...subTabBtnStyle, ...(category === c.id ? subTabBtnActiveStyle : null) }}
+            onClick={() => setCategory(c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      {category === 'accessories' ? (
+        <div style={gridStyle}>
+          {ACCESSORIES.map((item) => {
+            const got = owned.has(item.id);
+            const canAfford = student.gotchiPts >= ACCESSORY_PRICE;
+            return (
+              <div
+                key={item.id}
+                role={!got ? 'button' : undefined}
+                style={{
+                  ...cellStyle,
+                  cursor: got || !canAfford ? 'default' : 'pointer',
+                  opacity: !got && !canAfford ? 0.5 : 1,
+                }}
+                title={got ? `${item.name} (owned)` : `${item.name} — ★${ACCESSORY_PRICE}`}
+                onClick={!got && canAfford ? () => onBuyAccessory(item.id, ACCESSORY_PRICE) : undefined}
+              >
+                <img src={spriteUrl(accessorySpriteFile(item.id))} alt="" style={itemIconStyle} />
+                <div style={priceStyle}>{got ? 'Owned' : `★${ACCESSORY_PRICE}`}</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <ComingSoon label="Customization" />
+      )}
+    </div>
+  );
+}
+
+function MyBagTab({ student, onSetEquippedAccessory }) {
+  const equipped = student.equippedAccessory;
+  const [selectedId, setSelectedId] = useState(equipped?.id ?? student.bag[0] ?? null);
+  const [pos, setPos] = useState(equipped ? { x: equipped.x, y: equipped.y } : { x: 0, y: 0 });
+
+  function selectItem(id) {
+    setSelectedId(id);
+    setPos(equipped?.id === id ? { x: equipped.x, y: equipped.y } : { x: 0, y: 0 });
+  }
+
+  if (student.bag.length === 0) {
+    return <ComingSoon label="Nothing in the bag yet — visit the Gotchi Shop" />;
+  }
+
+  const { stage, tamaId } = resolveDisplayTama(student);
+  const selected = selectedId != null ? findAccessory(selectedId) : null;
+
+  return (
+    <div>
+      <div style={sectionLabelStyle}>Your items</div>
+      <div style={{ ...gridStyle, marginBottom: 14 }}>
+        {student.bag.map((id) => {
+          const item = findAccessory(id);
+          if (!item) return null;
+          const isEquipped = equipped?.id === id;
+          const isSelected = selectedId === id;
+          return (
+            <div
+              key={id}
+              role="button"
+              style={{ ...cellStyle, ...(isSelected ? cellSelectedStyle : null), cursor: 'pointer' }}
+              title={item.name}
+              onClick={() => selectItem(id)}
+            >
+              <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+              <img src={spriteUrl(accessorySpriteFile(id))} alt="" style={itemIconStyle} />
+            </div>
+          );
+        })}
+      </div>
+      {selected && (
+        <>
+          <div style={sectionLabelStyle}>Drag {selected.name} onto {student.name}&rsquo;s tama</div>
+          <DragFrame stage={stage} tamaId={tamaId} accessoryId={selectedId} pos={pos} onPosChange={setPos} />
+          <div style={editorActionsStyle}>
+            <button style={primaryBtnStyle} onClick={() => onSetEquippedAccessory({ id: selectedId, x: pos.x, y: pos.y })}>
+              Equip here
+            </button>
+            {equipped && (
+              <button style={secondaryBtnStyle} onClick={() => onSetEquippedAccessory(null)}>
+                Unequip
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// The positioning editor — a fixed-size frame showing the student's field
+// tama at EDITOR_SCALE (base variant, static idle frame) with the selected
+// accessory drawn on top, dragged via TamaComposite's own `accessory` prop
+// (passing pointer handlers through it) rather than a second, separately-
+// positioned image — that's what guarantees the position saved here means
+// exactly the same thing when it's rendered later on the animated field
+// roamer (see spriteCompositor.jsx's TamaComposite for the shared
+// face-anchored positioning formula both places actually use). Pointer
+// events (not separate mouse/touch handlers) so dragging works the same
+// with a mouse or on a touchscreen — setPointerCapture keeps the drag
+// going even if the pointer moves off the image mid-drag. Reports pos in
+// the same base-resolution pixel units TamaComposite's `accessory` prop
+// expects (dividing the on-screen drag delta by EDITOR_SCALE).
+function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange }) {
+  const dragRef = useRef(null); // {startClientX, startClientY, startPosX, startPosY} | null
+  const isEgg = stage === 'egg';
+
+  function handlePointerDown(e) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startClientX: e.clientX, startClientY: e.clientY, startPosX: pos.x, startPosY: pos.y };
+  }
+  function handlePointerMove(e) {
+    if (!dragRef.current) return;
+    const dx = (e.clientX - dragRef.current.startClientX) / EDITOR_SCALE;
+    const dy = (e.clientY - dragRef.current.startClientY) / EDITOR_SCALE;
+    onPosChange({ x: Math.round(dragRef.current.startPosX + dx), y: Math.round(dragRef.current.startPosY + dy) });
+  }
+  function handlePointerUp() {
+    dragRef.current = null;
+  }
+
+  return (
+    <div style={dragFrameStyle}>
+      <TamaComposite
+        tamaId={isEgg ? 'egg' : tamaId}
+        variant="base"
+        frames={{ body: 0, eyes: 0, mouth: 0 }}
+        scale={EDITOR_SCALE}
+        accessory={{
+          id: accessoryId,
+          x: pos.x,
+          y: pos.y,
+          onPointerDown: handlePointerDown,
+          onPointerMove: handlePointerMove,
+          onPointerUp: handlePointerUp,
+        }}
+      />
     </div>
   );
 }
@@ -311,4 +492,88 @@ const numStyle = {
 const starStyle = {
   color: '#ffe066',
   fontSize: 9,
+};
+
+const coinBalanceStyle = {
+  fontSize: 12,
+  color: '#ffe066',
+};
+
+const subTabRowStyle = {
+  display: 'flex',
+  gap: 6,
+  marginBottom: 14,
+};
+
+const subTabBtnStyle = {
+  background: 'none',
+  border: '1px solid #2e2e4e',
+  color: '#a0a0c0',
+  borderRadius: 5,
+  padding: '5px 10px',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: 10,
+};
+
+const subTabBtnActiveStyle = {
+  border: '1px solid #ffe066',
+  background: 'rgba(255, 224, 102, 0.1)',
+  color: '#e0e0f0',
+};
+
+const itemIconStyle = {
+  width: 32,
+  height: 32,
+  imageRendering: 'pixelated',
+};
+
+const priceStyle = {
+  fontSize: 8,
+  color: '#ffe066',
+};
+
+const editorActionsStyle = {
+  display: 'flex',
+  gap: 8,
+  marginTop: 10,
+};
+
+const primaryBtnStyle = {
+  background: '#4ef0d8',
+  border: 'none',
+  color: '#0a0a14',
+  borderRadius: 6,
+  padding: '8px 14px',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: 11,
+  fontWeight: 'bold',
+};
+
+const secondaryBtnStyle = {
+  background: 'none',
+  border: '1px solid #2e2e4e',
+  color: '#a0a0c0',
+  borderRadius: 6,
+  padding: '8px 14px',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: 11,
+};
+
+// Checkerboard-ish background so a mostly-transparent accessory image is
+// still easy to see/grab while dragging.
+const dragFrameStyle = {
+  position: 'relative',
+  width: 64 * EDITOR_SCALE,
+  height: 64 * EDITOR_SCALE,
+  background: '#22223a',
+  backgroundImage:
+    'linear-gradient(45deg, #2a2a44 25%, transparent 25%), linear-gradient(-45deg, #2a2a44 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2a2a44 75%), linear-gradient(-45deg, transparent 75%, #2a2a44 75%)',
+  backgroundSize: '16px 16px',
+  backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+  border: '1px solid #2e2e4e',
+  borderRadius: 6,
+  overflow: 'hidden',
 };

@@ -53,6 +53,8 @@ function rowToStudent(row) {
     // 'current'") — same union growth.js's resolveDisplayTama already
     // handles once converted back.
     displayTamaId: row.display_tama_id === 'current' ? 'current' : Number(row.display_tama_id),
+    bag: row.bag ?? [], // owned accessory ids — see src/game/accessories.js
+    equippedAccessory: row.equipped_accessory ?? null, // {id, x, y} | null
   };
 }
 
@@ -384,6 +386,44 @@ export function useClassroomStore(session) {
     }
   }
 
+  // Gotchi Shop purchase — spends gotchiPts (the same spendable currency
+  // points/deductions use, not lifetimePts, so buying something never
+  // touches growth) and adds accessoryId to the student's bag if they
+  // don't already own it (cosmetic unlocks, not consumables — buying the
+  // same thing twice is a no-op price-wise, silently ignored rather than
+  // erroring, since the UI shouldn't offer an already-owned item as
+  // purchasable in the first place). Caller (the shop tab) is expected to
+  // have already checked affordability for the disabled/enabled button
+  // state; this re-checks server-side-shaped local state before spending
+  // regardless, since student.gotchiPts could be stale by the time the
+  // click lands.
+  async function buyAccessory(student, accessoryId, price) {
+    if (student.bag.includes(accessoryId)) return;
+    if (student.gotchiPts < price) return;
+    const nextBag = [...student.bag, accessoryId];
+    const nextGotchiPts = student.gotchiPts - price;
+    patchStudent(setStudents, student.id, { bag: nextBag, gotchiPts: nextGotchiPts });
+    const { error: err } = await supabase.from('students').update({ bag: nextBag, gotchi_pts: nextGotchiPts }).eq('id', student.id);
+    if (err) {
+      setError(err.message);
+      patchStudent(setStudents, student.id, { bag: student.bag, gotchiPts: student.gotchiPts });
+    }
+  }
+
+  // Equips (or, with null, unequips) one owned accessory — see My Bag's
+  // positioning editor for where {id, x, y} comes from. Only ONE
+  // accessory can be equipped at a time by design (see TamadexToast.jsx's
+  // file header).
+  async function setEquippedAccessory(studentId, equippedAccessory) {
+    const prev = students.find((s) => s.id === studentId);
+    patchStudent(setStudents, studentId, { equippedAccessory });
+    const { error: err } = await supabase.from('students').update({ equipped_accessory: equippedAccessory }).eq('id', studentId);
+    if (err) {
+      setError(err.message);
+      if (prev) patchStudent(setStudents, studentId, { equippedAccessory: prev.equippedAccessory });
+    }
+  }
+
   return {
     loading,
     error,
@@ -400,6 +440,8 @@ export function useClassroomStore(session) {
     awardAllPendingPts,
     distributeClass,
     setDisplayTama,
+    buyAccessory,
+    setEquippedAccessory,
   };
 }
 
