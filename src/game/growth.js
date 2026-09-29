@@ -57,23 +57,32 @@ export function findTamaName(tamaId) {
   return null;
 }
 
+// tamaId -> 'baby'/'toddler' for every species a student can pick as their
+// display tama WITHOUT having to have completed it first (see
+// allBabiesAndToddlers below) — used by resolveDisplayTama to tell those
+// apart from a picked adult/secret (which are always 'adult' stage).
+const BABY_OR_TODDLER_STAGE_BY_ID = new Map([
+  [chart.baby.tamaId, 'baby'],
+  ...chart.toddlers.map((t) => [t.tamaId, 'toddler']),
+]);
+
 // Resolves a student's displayTamaId into what should actually render:
-// { tamaId, stage }. 'current' (or unset) follows whatever's growing
-// right now (including egg — the field roaming code uses `stage` to
-// decide whether this should roam or sit still); a specific tamadex
-// tamaId (a completed adult/secret the student picked to show off
-// instead) always resolves to 'adult' stage, since tamadex entries are
-// never anything else. This is the single source of truth for "what tama
-// does the FIELD show" — see StudentGrid.jsx for the tile, which
-// deliberately shows growth.currentTama directly instead (the asymmetric
-// design: field shows the chosen display tama, tile always shows what's
-// actively growing).
+// { tamaId, stage }. 'current' (or unset) follows whatever's growing right
+// now (including egg — the field roaming code uses `stage` to decide
+// whether this should roam or sit still). A specific PICKED tamaId is
+// either one of the always-available baby/toddler forms (see
+// allBabiesAndToddlers) or a tamadex entry (a completed adult/secret),
+// which is always 'adult' stage. This is the single source of truth for
+// "what tama does the FIELD show" — see StudentGrid.jsx for the tile,
+// which deliberately shows growth.currentTama directly instead (the
+// asymmetric design: field shows the chosen display tama, tile always
+// shows what's actively growing).
 export function resolveDisplayTama(student) {
   const { displayTamaId, growth } = student;
   if (!displayTamaId || displayTamaId === 'current') {
     return { tamaId: growth.currentTama.tamaId, stage: growth.currentTama.stage };
   }
-  return { tamaId: displayTamaId, stage: 'adult' };
+  return { tamaId: displayTamaId, stage: BABY_OR_TODDLER_STAGE_BY_ID.get(displayTamaId) ?? 'adult' };
 }
 
 // Total possible tamadex entries: every adult across all teen lines (48)
@@ -104,6 +113,20 @@ export function allAdults() {
     }
   }
   return adults;
+}
+
+// The one baby species + all 3 toddlers (one per biome) — every early-stage
+// form a student can pick as their field display tama. Unlike adults,
+// these don't need to be "collected" first: every student passes through
+// the SAME baby and the SAME 3 toddlers on every single growth cycle, so
+// there's nothing to gate on — they're just always-available choices, per
+// the request that added this ("let students pick a baby/toddler form for
+// their field tama too, not just completed adults").
+export function allBabiesAndToddlers() {
+  return [
+    { tamaId: chart.baby.tamaId, name: chart.baby.name, stage: 'baby' },
+    ...chart.toddlers.map((t) => ({ tamaId: t.tamaId, name: t.name, stage: 'toddler' })),
+  ];
 }
 
 // Creates a fresh student progression record. tamadex/closedTeens/

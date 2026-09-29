@@ -29,7 +29,7 @@
 
 import { useRef, useState } from 'react';
 import './teacher.css';
-import { newStudentProgress, meterFraction, findTamaName, POINTS_PER_GROWTH } from '../game/growth.js';
+import { newStudentProgress, meterFraction, findTamaName, allBabiesAndToddlers, POINTS_PER_GROWTH } from '../game/growth.js';
 import { spriteUrl } from '../game/spriteData.js';
 import { playAddPoint } from '../sound.js';
 import { useAuth } from '../auth/useAuth.js';
@@ -666,20 +666,29 @@ function GrowthStatus({ student, onSetDisplayTama }) {
         <div className="teacher-growth-meter-fill" style={{ width: `${fraction * 100}%` }} />
       </div>
       <div className="teacher-display-tama">Current Display Tama: {displayName}</div>
-      {growth.tamadex.length > 0 && (
-        <select
-          className="teacher-display-tama-select"
-          value={displayTamaId}
-          onChange={(e) => onSetDisplayTama(e.target.value === 'current' ? 'current' : Number(e.target.value))}
-        >
-          <option value="current">Currently growing ({stage} · {name})</option>
-          {growth.tamadex.map((tamaId) => (
-            <option key={tamaId} value={tamaId}>
-              {findTamaName(tamaId) ?? `#${tamaId}`}
+      <select
+        className="teacher-display-tama-select"
+        value={displayTamaId}
+        onChange={(e) => onSetDisplayTama(e.target.value === 'current' ? 'current' : Number(e.target.value))}
+      >
+        <option value="current">Currently growing ({stage} · {name})</option>
+        <optgroup label="Baby & toddler forms">
+          {allBabiesAndToddlers().map((t) => (
+            <option key={t.tamaId} value={t.tamaId}>
+              {t.name}
             </option>
           ))}
-        </select>
-      )}
+        </optgroup>
+        {growth.tamadex.length > 0 && (
+          <optgroup label="Adults">
+            {growth.tamadex.map((tamaId) => (
+              <option key={tamaId} value={tamaId}>
+                {findTamaName(tamaId) ?? `#${tamaId}`}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
     </div>
   );
 }
