@@ -61,7 +61,7 @@ const TABS = [
   { id: 'bag', label: 'My Bag' },
 ];
 
-export default function TamadexToast({ student, onSelectDisplay, onBuyAccessory, onSetEquippedAccessory, onClose }) {
+export default function TamadexToast({ student, onSelectDisplay, onBuyAccessory, onSetEquippedAccessory, onSetNickname, onClose }) {
   const [activeTab, setActiveTab] = useState('tamadex');
 
   return (
@@ -89,7 +89,9 @@ export default function TamadexToast({ student, onSelectDisplay, onBuyAccessory,
           <div style={contentStyle}>
             {activeTab === 'tamadex' && <TamadexTab student={student} onSelectDisplay={onSelectDisplay} />}
             {activeTab === 'shop' && <ShopTab student={student} onBuyAccessory={onBuyAccessory} />}
-            {activeTab === 'bag' && <MyBagTab student={student} onSetEquippedAccessory={onSetEquippedAccessory} />}
+            {activeTab === 'bag' && (
+              <MyBagTab student={student} onSetEquippedAccessory={onSetEquippedAccessory} onSetNickname={onSetNickname} />
+            )}
           </div>
         </div>
       </div>
@@ -262,7 +264,7 @@ function BuyConfirmDialog({ item, price, onConfirm, onCancel }) {
   );
 }
 
-function MyBagTab({ student, onSetEquippedAccessory }) {
+function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
   const equipped = student.equippedAccessory;
   // Nothing pre-selected on open — the editor only appears once the
   // student/teacher actually taps an item, rather than jumping straight
@@ -276,10 +278,6 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
     setPos(equipped?.id === id ? { x: equipped.x, y: equipped.y } : { x: 0, y: 0 });
   }
 
-  if (student.bag.length === 0) {
-    return <ComingSoon label="Nothing in the bag yet — visit the Gotchi Shop" />;
-  }
-
   const { stage, tamaId } = resolveDisplayTama(student);
   const selected = selectedId != null ? findAccessory(selectedId) : null;
 
@@ -287,28 +285,35 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
     <div style={bagLayoutStyle}>
       <div style={bagItemsColumnStyle}>
         <div style={sectionLabelStyle}>Your items</div>
-        <div style={bagGridStyle}>
-          {student.bag.map((id) => {
-            const item = findAccessory(id);
-            if (!item) return null;
-            const isEquipped = equipped?.id === id;
-            const isSelected = selectedId === id;
-            return (
-              <div
-                key={id}
-                role="button"
-                style={{ ...cellStyle, ...(isSelected ? cellSelectedStyle : null), cursor: 'pointer' }}
-                title={item.name}
-                onClick={() => selectItem(id)}
-              >
-                <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
-                <img src={spriteUrl(accessorySpriteFile(id))} alt="" style={itemIconStyle} />
-              </div>
-            );
-          })}
-        </div>
+        {student.bag.length === 0 ? (
+          <ComingSoon label="Nothing in the bag yet — visit the Gotchi Shop" />
+        ) : (
+          <div style={bagGridStyle}>
+            {student.bag.map((id) => {
+              const item = findAccessory(id);
+              if (!item) return null;
+              const isEquipped = equipped?.id === id;
+              const isSelected = selectedId === id;
+              return (
+                <div
+                  key={id}
+                  role="button"
+                  style={{ ...cellStyle, ...(isSelected ? cellSelectedStyle : null), cursor: 'pointer' }}
+                  title={item.name}
+                  onClick={() => selectItem(id)}
+                >
+                  <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+                  <img src={spriteUrl(accessorySpriteFile(id))} alt="" style={itemIconStyle} />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div style={bagEditorColumnStyle}>
+        {/* Above the drag frame, per request — a separate feature from
+            accessories, so it stays available even with an empty bag. */}
+        <NicknameEditor student={student} onSetNickname={onSetNickname} />
         <div style={sectionLabelStyle}>
           {selected ? (
             <>
@@ -331,6 +336,36 @@ function MyBagTab({ student, onSetEquippedAccessory }) {
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Lets a student rename what shows above their roaming tama on the island
+// field (IslandView.jsx's NameTag) — separate from their real name (the
+// `name` column, used everywhere else: the dashboard, the roster tile,
+// this very toast's own title). Local draft state, saved explicitly
+// (matching the app's other editors here — "Equip here" is the same
+// pattern) rather than on every keystroke or on blur, so a student typing
+// something silly doesn't briefly show up live on a projected field
+// before they've actually committed to it.
+function NicknameEditor({ student, onSetNickname }) {
+  const [draft, setDraft] = useState(student.nickname ?? '');
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={sectionLabelStyle}>Field nickname</div>
+      <div style={nicknameRowStyle}>
+        <input
+          style={nicknameInputStyle}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={student.name}
+          maxLength={20}
+        />
+        <button style={secondaryBtnStyle} onClick={() => onSetNickname(draft)}>
+          Save
+        </button>
       </div>
     </div>
   );
@@ -648,6 +683,24 @@ const editorActionsStyle = {
   display: 'flex',
   gap: 8,
   marginTop: 10,
+};
+
+const nicknameRowStyle = {
+  display: 'flex',
+  gap: 8,
+  marginBottom: 16,
+};
+
+const nicknameInputStyle = {
+  flex: 1,
+  minWidth: 0,
+  background: '#22223a',
+  border: '1px solid #2e2e4e',
+  borderRadius: 6,
+  padding: '8px 10px',
+  color: '#e0e0f0',
+  fontFamily: 'inherit',
+  fontSize: 11,
 };
 
 const primaryBtnStyle = {

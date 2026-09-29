@@ -55,6 +55,7 @@ function rowToStudent(row) {
     displayTamaId: row.display_tama_id === 'current' ? 'current' : Number(row.display_tama_id),
     bag: row.bag ?? [], // owned accessory ids — see src/game/accessories.js
     equippedAccessory: row.equipped_accessory ?? null, // {id, x, y} | null
+    nickname: row.nickname ?? null, // shown above the field tama instead of `name` when set — see IslandView.jsx's NameTag
   };
 }
 
@@ -424,6 +425,20 @@ export function useClassroomStore(session) {
     }
   }
 
+  // Shown above the roaming tama on the field instead of `name` — null
+  // (or an empty/whitespace-only string, normalized to null) falls back
+  // to `name`. Doesn't touch `name` itself anywhere.
+  async function setNickname(studentId, nickname) {
+    const prev = students.find((s) => s.id === studentId);
+    const trimmed = nickname?.trim() || null;
+    patchStudent(setStudents, studentId, { nickname: trimmed });
+    const { error: err } = await supabase.from('students').update({ nickname: trimmed }).eq('id', studentId);
+    if (err) {
+      setError(err.message);
+      if (prev) patchStudent(setStudents, studentId, { nickname: prev.nickname });
+    }
+  }
+
   return {
     loading,
     error,
@@ -442,6 +457,7 @@ export function useClassroomStore(session) {
     setDisplayTama,
     buyAccessory,
     setEquippedAccessory,
+    setNickname,
   };
 }
 

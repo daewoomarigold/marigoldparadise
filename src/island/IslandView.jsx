@@ -552,7 +552,7 @@ export default function IslandView() {
                 faceOffset={faceOffset}
                 accessory={s.equippedAccessory}
               />
-              <NameTag name={s.name} />
+              <NameTag name={s.nickname || s.name} />
             </div>
           );
         })}
@@ -569,6 +569,7 @@ export default function IslandView() {
           onSelectDisplay={(tamaId) => store.setDisplayTama(selectedStudent.id, tamaId)}
           onBuyAccessory={(accessoryId, price) => store.buyAccessory(selectedStudent, accessoryId, price)}
           onSetEquippedAccessory={(equipped) => store.setEquippedAccessory(selectedStudent.id, equipped)}
+          onSetNickname={(nickname) => store.setNickname(selectedStudent.id, nickname)}
           onClose={() => setSelectedStudentId(null)}
         />
       )}

@@ -64,6 +64,12 @@ create table public.students (
   -- TamaComposite `accessory` prop), or null for nothing equipped.
   bag jsonb not null default '[]'::jsonb,
   equipped_accessory jsonb,
+  -- Shown above the roaming tama on the island field INSTEAD of `name`
+  -- when set (see IslandView.jsx's NameTag) — null/empty falls back to
+  -- `name`. Doesn't touch `name` anywhere else (the teacher dashboard,
+  -- the roster tile) — just the field's own name tag, per the request
+  -- that added this.
+  nickname text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
