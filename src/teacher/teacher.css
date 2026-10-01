@@ -482,23 +482,20 @@
   transform: scale(0.92);
   background: rgba(255, 255, 255, 0.14);
 }
-.teacher-pts-input {
+.teacher-pts-pending {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--yellow);
   font-family: 'Press Start 2P', monospace;
-  /* 16px+ also stops iOS Safari from zooming the page when this is focused */
   font-size: 16px;
   flex: 1 1 0;
   min-width: 0;
   height: 44px;
-  text-align: center;
-  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 8px;
-  outline: none;
-}
-.teacher-pts-input:focus {
-  border-color: var(--yellow);
+  box-sizing: border-box;
 }
 /* Confirmed total (static — can't move until Distribute) + a badge for
    whatever's queued in pendingPts, if anything. */
@@ -861,7 +858,7 @@
 .seat-desk.view .teacher-pending-badge {
   font-size: 12px;
 }
-.seat-desk.view .teacher-pts-input {
+.seat-desk.view .teacher-pts-pending {
   height: 46px;
   font-size: 18px;
 }

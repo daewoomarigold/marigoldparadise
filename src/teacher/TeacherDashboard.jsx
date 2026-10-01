@@ -22,8 +22,8 @@
 //
 // "Tama Time" — points given during class don't touch gotchiPts/
 // lifetimePts/growth at all anymore; they queue in pendingPts (the
-// -10/-1/+1/+10 controls and the number input below all edit that, not
-// the confirmed total) since the island often isn't visible while class
+// +1 buttons below — per student, per group, and Award All — all add to
+// that, not the confirmed total) since the island often isn't visible while class
 // is happening, so nothing about a pet should change until Taylor wants
 // it to. distributeAll below applies everything queued at once — see
 // useClassroomStore.js's distributeClass and StudentGrid.jsx's reveal
@@ -313,7 +313,7 @@ export default function TeacherDashboard() {
   }
 
   // Thin wrapper so the rest of this file can keep calling setPendingPts
-  // by id (matches the input/button handlers below) — the store itself
+  // by id (matches the +1 button handler below) — the store itself
   // just needs the student object, for its id. Also the single choke
   // point for the dashboard's own audio cue: an immediate playAddPoint()
   // right when Taylor queues points, distinct from (and in addition to)
@@ -374,7 +374,6 @@ export default function TeacherDashboard() {
         key={s.id}
         student={s}
         onOpenDetails={() => setDetailStudentId(s.id)}
-        onSetPending={(v) => setPendingPts(s.id, v)}
         onNudge={() => nudgePendingPts(s, 1)}
       />
     );
@@ -690,7 +689,7 @@ function LoadingScreen({ text }) {
   );
 }
 
-function StudentCard({ student: s, onOpenDetails, onSetPending, onNudge }) {
+function StudentCard({ student: s, onOpenDetails, onNudge }) {
   return (
     <div className="teacher-student-card">
       <button className="teacher-student-name" onClick={onOpenDetails} title="Details">
@@ -706,15 +705,11 @@ function StudentCard({ student: s, onOpenDetails, onSetPending, onNudge }) {
           </span>
         )}
       </div>
-      {/* Just +1 (and the input) — Taylor's deliberately conservative with points and doesn't take them away, so no +10/-1/-10. */}
+      {/* Just +1, next to a running tally of what's been queued this lesson. Taylor's deliberately conservative with points and doesn't take them away, so no +10/-1/-10, and no typed amounts either. */}
       <div className="teacher-pts-controls">
-        <input
-          className="teacher-pts-input"
-          type="number"
-          value={s.pendingPts ?? 0}
-          onChange={(e) => onSetPending(e.target.value)}
-          title="Pending — queued until Distribute"
-        />
+        <div className="teacher-pts-pending" title="Queued this lesson — lands at Distribute">
+          {s.pendingPts ?? 0}
+        </div>
         <button className="teacher-pts-btn plus" onClick={onNudge} title="+1">
           +1
         </button>
