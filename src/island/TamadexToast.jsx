@@ -231,6 +231,7 @@ function ShopTab({ student, onBuyAccessory }) {
         <BuyConfirmDialog
           item={confirmItem}
           price={ACCESSORY_PRICE}
+          balance={student.gotchiPts}
           onConfirm={() => {
             onBuyAccessory(confirmItem.id, ACCESSORY_PRICE);
             setConfirmId(null);
@@ -245,13 +246,19 @@ function ShopTab({ student, onBuyAccessory }) {
 // A small Yes/No confirmation overlaid on top of the shop grid — position:
 // absolute against ShopTab's own position:relative wrapper, so it covers
 // just the shop's content area rather than the whole toast.
-function BuyConfirmDialog({ item, price, onConfirm, onCancel }) {
+function BuyConfirmDialog({ item, price, balance, onConfirm, onCancel }) {
   return (
     <div style={confirmBackdropStyle} onClick={onCancel}>
       <div style={confirmCardStyle} onClick={(e) => e.stopPropagation()}>
         <img src={spriteUrl(accessorySpriteFile(item.id))} alt="" style={{ ...itemIconStyle, width: 48, height: 48 }} />
         <div style={confirmTextStyle}>
           Buy {item.name} for ★{price}?
+        </div>
+        <div style={balanceTableStyle}>
+          <span>Current Balance:</span>
+          <span style={balanceValueStyle}>★{balance}</span>
+          <span>Balance After Purchase:</span>
+          <span style={balanceValueStyle}>★{balance - price}</span>
         </div>
         <div style={editorActionsStyle}>
           <button style={primaryBtnStyle} onClick={onConfirm}>
@@ -800,8 +807,24 @@ const confirmCardStyle = {
   flexDirection: 'column',
   alignItems: 'center',
   gap: 10,
-  maxWidth: 220,
+  maxWidth: 280,
   textAlign: 'center',
+};
+
+// Two label/value rows, values right-aligned so the numbers line up.
+const balanceTableStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'auto auto',
+  columnGap: 10,
+  rowGap: 4,
+  fontSize: 11,
+  color: '#7070a0',
+  textAlign: 'left',
+};
+
+const balanceValueStyle = {
+  color: '#ffe066',
+  textAlign: 'right',
 };
 
 const confirmTextStyle = {
