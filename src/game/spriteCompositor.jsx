@@ -128,6 +128,10 @@ export function TamaComposite({ tamaId, variant, frames, scale, mirrored = false
         <img
           src={spriteUrl(accessorySpriteFile(accessory.id))}
           alt=""
+          // Without this, a mouse drag in the My Bag editor turns into the
+          // browser's own native image drag after the first move, which
+          // cancels the pointer events and stops the accessory dead.
+          draggable={false}
           onPointerDown={accessory.onPointerDown}
           onPointerMove={accessory.onPointerMove}
           onPointerUp={accessory.onPointerUp}

@@ -27,9 +27,11 @@
 // useClassroomStore.js's buyAccessory) — it isn't equipped automatically,
 // that happens in My Bag.
 //
-// My Bag tab: a grid of owned accessories: pick one to open the
-// positioning editor below it, a drag-anywhere frame showing the
-// student's own field tama with that accessory overlaid (see
+// My Bag tab: a grid of owned accessories next to a drag-anywhere frame
+// showing the student's own field tama. On open the frame already shows
+// whatever's currently equipped, at its saved position, so the student's
+// current look is visible straight away without tapping anything. Pick an
+// item to preview it in the frame instead, with that accessory overlaid (see
 // spriteCompositor.jsx's TamaComposite `accessory` prop) — drag it where
 // you want, then "Equip here" saves that exact position and equips it
 // (useClassroomStore.js's setEquippedAccessory), which is what actually
@@ -266,12 +268,20 @@ function BuyConfirmDialog({ item, price, onConfirm, onCancel }) {
 
 function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
   const equipped = student.equippedAccessory;
-  // Nothing pre-selected on open — the editor only appears once the
-  // student/teacher actually taps an item, rather than jumping straight
-  // into it for whatever happened to be equipped (or the first item in
-  // the bag).
+  // Nothing pre-selected on open (no item highlighted in the grid, no
+  // Equip button), but the frame still shows what's equipped right now,
+  // at its saved spot, so the current look is visible without a tap.
+  // Dragging that equipped item in the frame selects it, same as tapping
+  // it in the grid would.
   const [selectedId, setSelectedId] = useState(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
+  const previewId = selectedId ?? equipped?.id ?? null;
+  const previewPos = selectedId != null ? pos : equipped ? { x: equipped.x, y: equipped.y } : pos;
+
+  function moveInFrame(nextPos) {
+    if (selectedId == null && equipped) setSelectedId(equipped.id);
+    setPos(nextPos);
+  }
 
   function selectItem(id) {
     setSelectedId(id);
@@ -319,11 +329,13 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
             <>
               Drag {selected.name} onto {student.name}&rsquo;s tama
             </>
+          ) : equipped && findAccessory(equipped.id) ? (
+            <>Wearing {findAccessory(equipped.id).name} — drag it, or pick another item</>
           ) : (
             'Pick an item to position it'
           )}
         </div>
-        <DragFrame stage={stage} tamaId={tamaId} accessoryId={selectedId} pos={pos} onPosChange={setPos} />
+        <DragFrame stage={stage} tamaId={tamaId} accessoryId={previewId} pos={previewPos} onPosChange={moveInFrame} />
         <div style={editorActionsStyle}>
           {selected && (
             <button style={primaryBtnStyle} onClick={() => onSetEquippedAccessory({ id: selectedId, x: pos.x, y: pos.y })}>
