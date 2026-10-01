@@ -19,9 +19,15 @@
 // DESK_W x DESK_H units, sized so a full student card (name, pts, +1,
 // growth meter) fits at a scale of 1.
 //
-// Layout shape: { desks: [{ id, x, y }], fixtures: [{ id, kind, label, x, y, w, h }] }
+// Layout shape: { desks: [{ id, x, y, group }], fixtures: [{ id, kind, label, x, y, w, h }] }
 // (x/y are the top-left corner). `kind` only picks a color — see
 // SeatingMap's .seat-fixture-* classes.
+//
+// GROUPS: Taylor's pods work as groups, and points can go to a whole group
+// at once (the "Group N +1" buttons above each pod). A group belongs to the
+// DESK, not the student. Whoever sits at a Group 1 desk is in Group 1, so
+// reseating or shuffling a class regroups everyone with no extra writes.
+// `group` is a number, or null for a desk that's in no group.
 
 export const DESK_W = 160;
 export const DESK_H = 150;
@@ -36,22 +42,22 @@ export const SNAP = 10; // drag increment in Edit room mode
 export const DEFAULT_ROOM_LAYOUT = {
   desks: [
     // Left pod
-    { id: 'L1', x: 40, y: 130 },
-    { id: 'L2', x: 212, y: 130 },
-    { id: 'L3', x: 40, y: 292 },
-    { id: 'L4', x: 212, y: 292 },
-    { id: 'L5', x: 126, y: 462 },
+    { id: 'L1', x: 40, y: 130, group: 1 },
+    { id: 'L2', x: 212, y: 130, group: 1 },
+    { id: 'L3', x: 40, y: 292, group: 1 },
+    { id: 'L4', x: 212, y: 292, group: 1 },
+    { id: 'L5', x: 126, y: 462, group: 1 },
     // Middle pod
-    { id: 'M1', x: 530, y: 350 },
-    { id: 'M2', x: 702, y: 350 },
-    { id: 'M3', x: 530, y: 512 },
-    { id: 'M4', x: 702, y: 512 },
+    { id: 'M1', x: 530, y: 350, group: 2 },
+    { id: 'M2', x: 702, y: 350, group: 2 },
+    { id: 'M3', x: 530, y: 512, group: 2 },
+    { id: 'M4', x: 702, y: 512, group: 2 },
     // Right pod
-    { id: 'R1', x: 1010, y: 144 },
-    { id: 'R2', x: 1182, y: 144 },
-    { id: 'R3', x: 1010, y: 306 },
-    { id: 'R4', x: 1182, y: 306 },
-    { id: 'R5', x: 1096, y: 476 },
+    { id: 'R1', x: 1010, y: 144, group: 3 },
+    { id: 'R2', x: 1182, y: 144, group: 3 },
+    { id: 'R3', x: 1010, y: 306, group: 3 },
+    { id: 'R4', x: 1182, y: 306, group: 3 },
+    { id: 'R5', x: 1096, y: 476, group: 3 },
   ],
   fixtures: [
     { id: 'teacher-desk', kind: 'teacher', label: "Teacher's Desk", x: 0, y: 0, w: 290, h: 80 },
@@ -59,6 +65,39 @@ export const DEFAULT_ROOM_LAYOUT = {
     { id: 'bookcase', kind: 'furniture', label: 'Bookcase', x: 1390, y: 0, w: 50, h: 380 },
   ],
 };
+
+// Height of the "Group N +1" button above each pod, and its gap to the desks.
+export const GROUP_BTN_H = 40;
+const GROUP_BTN_GAP = 8;
+
+// A desk's group. Layouts saved before groups existed have no `group` on
+// their desks, so those fall back to the default pods' groups by desk id
+// (L* = 1, M* = 2, R* = 3). An explicit null means "no group" and is kept.
+export function deskGroup(desk) {
+  if (desk.group !== undefined) return desk.group;
+  return DEFAULT_ROOM_LAYOUT.desks.find((d) => d.id === desk.id)?.group ?? null;
+}
+
+// One entry per group that has at least one desk, in group-number order:
+// { group, deskIds, x, y, w, h }, where the rect is that group's button,
+// sitting just above its desks and as wide as the pod.
+export function groupButtons(layout) {
+  const byGroup = new Map();
+  for (const desk of layout.desks) {
+    const g = deskGroup(desk);
+    if (g == null) continue;
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push(desk);
+  }
+  return [...byGroup.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([group, desks]) => {
+      const minX = Math.min(...desks.map((d) => d.x));
+      const maxX = Math.max(...desks.map((d) => d.x + DESK_W));
+      const minY = Math.min(...desks.map((d) => d.y));
+      return { group, deskIds: desks.map((d) => d.id), x: minX, y: minY - GROUP_BTN_H - GROUP_BTN_GAP, w: maxX - minX, h: GROUP_BTN_H };
+    });
+}
 
 export function snap(v) {
   return Math.round(v / SNAP) * SNAP;
@@ -68,12 +107,13 @@ export function newDeskId() {
   return 'd' + Math.random().toString(36).slice(2, 8);
 }
 
-// The bounding box of everything in the room, so SeatingMap can crop to
-// it and scale just the occupied area to fit.
+// The bounding box of everything in the room (group buttons included), so
+// SeatingMap can crop to it and scale just the occupied area to fit.
 export function layoutBounds(layout, pad = 0) {
   const rects = [
     ...layout.desks.map((d) => ({ x: d.x, y: d.y, w: DESK_W, h: DESK_H })),
     ...layout.fixtures.map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h })),
+    ...groupButtons(layout),
   ];
   if (rects.length === 0) return { minX: 0, minY: 0, maxX: DESK_W, maxY: DESK_H };
   return {

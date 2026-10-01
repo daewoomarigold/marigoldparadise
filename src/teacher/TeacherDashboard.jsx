@@ -343,7 +343,17 @@ export default function TeacherDashboard() {
     toast(`Queued ${amt} pts for everyone`);
   }
 
-  // "Tama Time" — applies every queued pendingPts at once (see
+  // A pod's "Group N +1" button (SeatingMap.jsx) — +1 pending for everyone
+  // seated in that group right now. One sound for the whole group, not one
+  // per student.
+  async function awardGroup(members, group) {
+    if (members.length === 0) return;
+    playAddPoint();
+    await Promise.all(members.map((s) => store.setPendingPts(s, (s.pendingPts ?? 0) + 1)));
+    toast(`Group ${group} +1 (${members.length} student${members.length === 1 ? '' : 's'})`);
+  }
+
+    // "Tama Time" — applies every queued pendingPts at once (see
   // useClassroomStore.js's distributeClass) and clears it. The reveal
   // itself (coin rain + any evolution) plays on the island
   // (StudentGrid.jsx), reacting to the same write — nothing to trigger
@@ -530,6 +540,7 @@ export default function TeacherDashboard() {
                   renderCard={renderCard}
                   onSeatingChange={(seating) => store.setClassSeating(currentClass.id, seating)}
                   onLayoutChange={store.saveRoomLayout}
+                  onAwardGroup={awardGroup}
                 />
               ) : filteredStudents.length === 0 ? (
                 <div className="teacher-empty-state">

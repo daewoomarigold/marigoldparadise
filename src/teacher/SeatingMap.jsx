@@ -7,7 +7,9 @@
 // - 'view': the normal lesson view. Each seated student's full card (the
 //   same one the grid view uses, passed in as renderCard) sits on their
 //   desk; anyone without a desk gets a full card in the strip underneath,
-//   so they can still be given points.
+//   so they can still be given points. A "Group N +1" button sits above
+//   each pod and gives +1 to everyone currently seated in it (see
+//   seating.js's GROUPS note).
 // - 'arrange': tap a student (on a desk or in the strip), then tap a desk
 //   to move them there, swapping with whoever's already sitting there.
 //   Tapping the strip with a seated student selected unseats them.
@@ -15,21 +17,21 @@
 //   doesn't fight with scrolling. Cards shrink to just names here so a stray
 //   tap can't queue points.
 // - 'edit': drag desks and fixtures around the room (snapped to SNAP
-//   units), add/delete desks, or reset to the default layout. Changes the
-//   SHARED layout, so every class sees it.
+//   units), add/delete desks, set a desk's group, or reset to the default
+//   layout. Changes the SHARED layout, so every class sees it.
 //
 // The whole room is laid out in room units and scaled with one CSS
 // transform to fit the space available, so the cards keep the same
 // proportions on any screen.
 
 import { useEffect, useRef, useState } from 'react';
-import { DESK_W, DESK_H, DEFAULT_ROOM_LAYOUT, layoutBounds, resolveSeating, shuffleSeating, snap, newDeskId } from './seating.js';
+import { DESK_W, DESK_H, DEFAULT_ROOM_LAYOUT, layoutBounds, resolveSeating, shuffleSeating, snap, newDeskId, deskGroup, groupButtons } from './seating.js';
 
 const ROOM_PAD = 10; // room units of breathing space around the outermost desk/fixture
 const STAGE_PAD = 12; // px between the scaled room and the stage edge
 const MAX_SCALE = 1.6;
 
-export default function SeatingMap({ layout, seating, students, search, mode, onModeChange, renderCard, onSeatingChange, onLayoutChange }) {
+export default function SeatingMap({ layout, seating, students, search, mode, onModeChange, renderCard, onSeatingChange, onLayoutChange, onAwardGroup }) {
   const stageRef = useRef(null);
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
   // arrange mode: the student id picked up, waiting for a desk tap.
@@ -173,7 +175,7 @@ export default function SeatingMap({ layout, seating, students, search, mode, on
 
   function addDesk() {
     const lowest = layoutBounds({ desks: layout.desks, fixtures: [] });
-    const desk = { id: newDeskId(), x: snap(lowest.minX), y: snap(layout.desks.length ? lowest.maxY + 20 : 0) };
+    const desk = { id: newDeskId(), x: snap(lowest.minX), y: snap(layout.desks.length ? lowest.maxY + 20 : 0), group: null };
     onLayoutChange({ ...layout, desks: [...layout.desks, desk] });
     setSelectedDeskId(desk.id);
   }
@@ -186,6 +188,11 @@ export default function SeatingMap({ layout, seating, students, search, mode, on
     setSelectedDeskId(null);
   }
 
+  function setDeskGroup(group) {
+    if (!selectedDeskId) return;
+    onLayoutChange({ ...layout, desks: layout.desks.map((d) => (d.id === selectedDeskId ? { ...d, group } : d)) });
+  }
+
   function resetLayout() {
     if (!confirm('Reset the room to the default layout? This affects every class. Students at desks that no longer exist will become unseated.')) return;
     onLayoutChange(DEFAULT_ROOM_LAYOUT);
@@ -193,6 +200,12 @@ export default function SeatingMap({ layout, seating, students, search, mode, on
   }
 
   const posOf = (item) => (dragPos?.id === item.id ? dragPos : item);
+  // Group buttons follow a desk while it's being dragged (bounds above
+  // deliberately don't, so the room doesn't rescale under your finger).
+  const liveLayout = dragPos ? { ...layout, desks: layout.desks.map((d) => (d.id === dragPos.id ? { ...d, x: dragPos.x, y: dragPos.y } : d)) } : layout;
+  const groups = groupButtons(liveLayout);
+  const selectedDesk = layout.desks.find((d) => d.id === selectedDeskId) ?? null;
+  const groupChoices = Array.from({ length: Math.max(0, ...groups.map((g) => g.group)) + 1 }, (_, i) => i + 1);
   const place = (item, w, h) => {
     const p = posOf(item);
     return { left: p.x - bounds.minX, top: p.y - bounds.minY, width: w, height: h };
@@ -221,7 +234,21 @@ export default function SeatingMap({ layout, seating, students, search, mode, on
       )}
       {mode === 'edit' && (
         <div className="seat-mode-bar">
-          <span className="seat-mode-hint">Drag desks and fixtures to match the room. Changes apply to every class.</span>
+          <span className="seat-mode-hint">
+            {selectedDesk ? 'Set this desk’s group:' : 'Drag desks and fixtures to match the room. Tap a desk to set its group. Changes apply to every class.'}
+          </span>
+          {selectedDesk && (
+            <div className="teacher-view-toggle" role="group" aria-label="Desk group">
+              {groupChoices.map((g) => (
+                <button key={g} className={deskGroup(selectedDesk) === g ? 'active' : ''} onClick={() => setDeskGroup(g)}>
+                  {g}
+                </button>
+              ))}
+              <button className={deskGroup(selectedDesk) == null ? 'active' : ''} onClick={() => setDeskGroup(null)}>
+                None
+              </button>
+            </div>
+          )}
           <div className="teacher-btn-flex" />
           <button className="teacher-btn green" onClick={addDesk}>
             + Desk
@@ -253,9 +280,32 @@ export default function SeatingMap({ layout, seating, students, search, mode, on
                 </div>
               ))}
 
+              {groups.map((g) => {
+                const members = g.deskIds.map((id) => deskToStudent.get(id)).filter(Boolean);
+                const style = { left: g.x - bounds.minX, top: g.y - bounds.minY, width: g.w, height: g.h };
+                return mode === 'view' ? (
+                  <button
+                    key={g.group}
+                    className="seat-group-btn"
+                    style={style}
+                    disabled={members.length === 0}
+                    onClick={() => onAwardGroup(members, g.group)}
+                    title={members.length ? members.map((m) => m.name).join(', ') : 'Nobody seated in this group'}
+                  >
+                    Group {g.group} +1
+                  </button>
+                ) : (
+                  <div key={g.group} className="seat-group-label" style={style}>
+                    Group {g.group}
+                  </div>
+                );
+              })}
+
               {layout.desks.map((desk) => {
                 const student = deskToStudent.get(desk.id) ?? null;
                 const style = place(desk, DESK_W, DESK_H);
+                const group = deskGroup(desk);
+                const badge = group != null && <span className="seat-desk-group">G{group}</span>;
 
                 if (mode === 'edit') {
                   return (
@@ -265,6 +315,7 @@ export default function SeatingMap({ layout, seating, students, search, mode, on
                       style={style}
                       {...dragHandlers(desk, 'desk')}
                     >
+                      {badge}
                       <span className="seat-desk-name">{student ? student.name : 'Desk'}</span>
                     </div>
                   );
@@ -279,6 +330,7 @@ export default function SeatingMap({ layout, seating, students, search, mode, on
                       style={style}
                       onClick={() => tapDesk(desk.id)}
                     >
+                      {badge}
                       <span className="seat-desk-name">{student ? student.name : 'empty'}</span>
                     </button>
                   );
