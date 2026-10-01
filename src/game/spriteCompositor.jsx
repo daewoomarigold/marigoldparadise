@@ -67,6 +67,16 @@ export function Cropped({ file, frameWidth, sheetHeight, frameIndex, offsetX = 0
 // variant (accessory art is always native 64x64/base-resolution,
 // regardless of what variant the tama itself is).
 //
+// Units: faceAnchor comes from THIS variant's own bible offsets, so it's
+// already in this variant's pixels (mini: a 32px canvas) and must NOT be
+// scaled by variantFactor again. Only the saved accessory.x/y (always
+// base-resolution — the My Bag editor uses the base variant) and the 64px
+// art get scaled down. An earlier version multiplied the anchor by
+// variantFactor too, which halved it on the mini field sprites and left
+// every accessory floating up and to the left of where it was placed.
+// Mini anchors are within half a pixel of base/2 for every tama in the
+// atlas, so the scaled offset lands where the editor showed it.
+//
 // The optional pointer handlers exist so TamadexToast.jsx's My Bag
 // positioning editor can render its draggable accessory through this
 // EXACT same component/formula (passing handlers, no faceOffset — a
@@ -123,8 +133,8 @@ export function TamaComposite({ tamaId, variant, frames, scale, mirrored = false
           onPointerUp={accessory.onPointerUp}
           style={{
             position: 'absolute',
-            left: (faceAnchor.x + accessory.x) * variantFactor * scale,
-            top: (faceAnchor.y + accessory.y) * variantFactor * scale,
+            left: (faceAnchor.x + accessory.x * variantFactor) * scale,
+            top: (faceAnchor.y + accessory.y * variantFactor) * scale,
             width: ACCESSORY_NATIVE_SIZE * variantFactor * scale,
             height: ACCESSORY_NATIVE_SIZE * variantFactor * scale,
             imageRendering: 'pixelated',
