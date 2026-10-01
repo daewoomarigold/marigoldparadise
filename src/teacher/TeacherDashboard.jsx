@@ -1,8 +1,10 @@
 // Teacher dashboard — ported from the old teacher.html (gotchigarden repo),
 // core roster + points loop only for this first pass. Left out on purpose,
-// to be ported later: prices panel, seating plan designer, photo/card
-// export. CSV roster import and Google auth were originally on this list
-// too — see parseClassCsv below and src/auth/useAuth.js — both since done.
+// to be ported later: prices panel, photo/card export. CSV roster import,
+// Google auth and seating were originally on this list too — see
+// parseClassCsv below, src/auth/useAuth.js and SeatingMap.jsx — all since
+// done (seating as a fixed shared room layout + per-class seats rather
+// than the old per-class plan designer; see seating.js).
 //
 // Data layer is Supabase (see src/data/useClassroomStore.js and
 // supabase/schema.sql) — this file just calls that hook's mutation
@@ -35,6 +37,28 @@ import { playAddPoint } from '../sound.js';
 import { useAuth } from '../auth/useAuth.js';
 import { useClassroomStore } from '../data/useClassroomStore.js';
 import LoginScreen from '../auth/LoginScreen.jsx';
+import SeatingMap from './SeatingMap.jsx';
+import { DEFAULT_ROOM_LAYOUT } from './seating.js';
+
+// Seats vs grid is a per-device preference (the iPad at the front of the
+// room may want seats while a laptop at home wants the grid), so it lives
+// in localStorage rather than Supabase. Wrapped since storage can throw
+// (private browsing).
+const VIEW_KEY = 'marigold.teacherView';
+function loadView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'seats';
+  } catch {
+    return 'seats';
+  }
+}
+function saveView(view) {
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // not worth surfacing — the toggle still works for this session
+  }
+}
 
 // Same coin icon StudentGrid.jsx uses for its pts readout — reused here
 // for the pending badge so the two pages speak the same visual language.
@@ -153,6 +177,10 @@ export default function TeacherDashboard() {
   const [newStudentPts, setNewStudentPts] = useState(0);
   const [showAwardBanner, setShowAwardBanner] = useState(false);
   const [awardAmount, setAwardAmount] = useState(1);
+  const [view, setView] = useState(loadView); // 'seats' | 'grid'
+  // Seats view only: 'view' (normal), 'arrange' (who sits where), 'edit'
+  // (move the desks themselves) — see SeatingMap.jsx.
+  const [seatMode, setSeatMode] = useState('view');
   const [toastMsg, setToastMsg] = useState('');
   const toastTimer = useRef(null);
 
@@ -192,7 +220,14 @@ export default function TeacherDashboard() {
     toast(`Created ${name}`);
   }
 
+  function changeView(next) {
+    setView(next);
+    saveView(next);
+    setSeatMode('view');
+  }
+
   function selectClass(id) {
+    setSeatMode('view');
     store.selectClass(id);
     setSearch('');
     setSidebarOpen(false);
@@ -321,6 +356,20 @@ export default function TeacherDashboard() {
     toast('Distributed — check the island for the reveal');
   }
 
+  // One student's card — shared by the grid and the seating view (which
+  // places the same card on that student's desk).
+  function renderCard(s) {
+    return (
+      <StudentCard
+        key={s.id}
+        student={s}
+        onOpenDetails={() => setDetailStudentId(s.id)}
+        onSetPending={(v) => setPendingPts(s.id, v)}
+        onNudge={() => nudgePendingPts(s, 1)}
+      />
+    );
+  }
+
   return (
     <div className="teacher-root">
       <header className="teacher-header">
@@ -431,63 +480,65 @@ export default function TeacherDashboard() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
+                <div className="teacher-view-toggle" role="group" aria-label="Layout">
+                  <button className={view === 'seats' ? 'active' : ''} onClick={() => changeView('seats')}>
+                    🪑 Seats
+                  </button>
+                  <button className={view === 'grid' ? 'active' : ''} onClick={() => changeView('grid')}>
+                    ▦ Grid
+                  </button>
+                </div>
+                {view === 'seats' && seatMode === 'view' && (
+                  <>
+                    <button className="teacher-btn" onClick={() => setSeatMode('arrange')}>
+                      Arrange seats
+                    </button>
+                    <button className="teacher-btn" onClick={() => setSeatMode('edit')}>
+                      Edit room
+                    </button>
+                  </>
+                )}
                 <div className="teacher-btn-flex" />
-                <button className="teacher-btn green" onClick={openAddStudent}>
-                  + Add Student
-                </button>
-                <button className="teacher-btn yellow" onClick={() => setShowAwardBanner(true)}>
-                  ★ Award All
-                </button>
-                <button
-                  className="teacher-btn yellow"
-                  onClick={distributeAll}
-                  disabled={pendingStudentCount === 0}
-                  title={pendingStudentCount === 0 ? 'Nothing queued yet' : `${pendingStudentCount} student${pendingStudentCount === 1 ? '' : 's'} queued`}
-                >
-                  🎉 Distribute{pendingStudentCount > 0 ? ` (${pendingStudentCount})` : ''}
-                </button>
+                {seatMode === 'view' && (
+                  <>
+                    <button className="teacher-btn green" onClick={openAddStudent}>
+                      + Add Student
+                    </button>
+                    <button className="teacher-btn yellow" onClick={() => setShowAwardBanner(true)}>
+                      ★ Award All
+                    </button>
+                    <button
+                      className="teacher-btn yellow"
+                      onClick={distributeAll}
+                      disabled={pendingStudentCount === 0}
+                      title={pendingStudentCount === 0 ? 'Nothing queued yet' : `${pendingStudentCount} student${pendingStudentCount === 1 ? '' : 's'} queued`}
+                    >
+                      🎉 Distribute{pendingStudentCount > 0 ? ` (${pendingStudentCount})` : ''}
+                    </button>
+                  </>
+                )}
               </div>
 
-              {filteredStudents.length === 0 ? (
+              {view === 'seats' ? (
+                <SeatingMap
+                  layout={store.roomLayout ?? DEFAULT_ROOM_LAYOUT}
+                  seating={currentClass.seating}
+                  students={students}
+                  search={search}
+                  mode={seatMode}
+                  onModeChange={setSeatMode}
+                  renderCard={renderCard}
+                  onSeatingChange={(seating) => store.setClassSeating(currentClass.id, seating)}
+                  onLayoutChange={store.saveRoomLayout}
+                />
+              ) : filteredStudents.length === 0 ? (
                 <div className="teacher-empty-state">
                   <div className="teacher-empty-text">
                     {search ? 'No students match your search' : 'No students yet — add one to get started'}
                   </div>
                 </div>
               ) : (
-                <div className="teacher-student-grid">
-                  {filteredStudents.map((s) => (
-                    <div className="teacher-student-card" key={s.id}>
-                      <button className="teacher-student-name" onClick={() => setDetailStudentId(s.id)} title="Details">
-                        <span className="teacher-student-name-text">{s.name}</span>
-                        <span className="teacher-student-more">⋯</span>
-                      </button>
-                      <div className="teacher-confirmed-pts" title="Confirmed total — won't move until Distribute">
-                        <img src={COIN_URL} alt="" className="teacher-coin-icon" />
-                        {s.gotchiPts}
-                        {(s.pendingPts ?? 0) !== 0 && (
-                          <span className="teacher-pending-badge">
-                            {s.pendingPts > 0 ? `+${s.pendingPts}` : s.pendingPts} pending
-                          </span>
-                        )}
-                      </div>
-                      {/* Just +1 (and the input) — Taylor's deliberately conservative with points and doesn't take them away, so no +10/-1/-10. */}
-                      <div className="teacher-pts-controls">
-                        <input
-                          className="teacher-pts-input"
-                          type="number"
-                          value={s.pendingPts ?? 0}
-                          onChange={(e) => setPendingPts(s.id, e.target.value)}
-                          title="Pending — queued until Distribute"
-                        />
-                        <button className="teacher-pts-btn plus" onClick={() => nudgePendingPts(s, 1)} title="+1">
-                          +1
-                        </button>
-                      </div>
-                      <CompactGrowth student={s} />
-                    </div>
-                  ))}
-                </div>
+                <div className="teacher-student-grid">{filteredStudents.map(renderCard)}</div>
               )}
 
               {showAwardBanner && (
@@ -624,6 +675,40 @@ function LoadingScreen({ text }) {
       }}
     >
       {text}
+    </div>
+  );
+}
+
+function StudentCard({ student: s, onOpenDetails, onSetPending, onNudge }) {
+  return (
+    <div className="teacher-student-card">
+      <button className="teacher-student-name" onClick={onOpenDetails} title="Details">
+        <span className="teacher-student-name-text">{s.name}</span>
+        <span className="teacher-student-more">⋯</span>
+      </button>
+      <div className="teacher-confirmed-pts" title="Confirmed total — won't move until Distribute">
+        <img src={COIN_URL} alt="" className="teacher-coin-icon" />
+        {s.gotchiPts}
+        {(s.pendingPts ?? 0) !== 0 && (
+          <span className="teacher-pending-badge">
+            {s.pendingPts > 0 ? `+${s.pendingPts}` : s.pendingPts} pending
+          </span>
+        )}
+      </div>
+      {/* Just +1 (and the input) — Taylor's deliberately conservative with points and doesn't take them away, so no +10/-1/-10. */}
+      <div className="teacher-pts-controls">
+        <input
+          className="teacher-pts-input"
+          type="number"
+          value={s.pendingPts ?? 0}
+          onChange={(e) => onSetPending(e.target.value)}
+          title="Pending — queued until Distribute"
+        />
+        <button className="teacher-pts-btn plus" onClick={onNudge} title="+1">
+          +1
+        </button>
+      </div>
+      <CompactGrowth student={s} />
     </div>
   );
 }

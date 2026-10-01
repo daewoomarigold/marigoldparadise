@@ -1,6 +1,7 @@
 /* Teacher dashboard — dark theme design system ported from the old
    teacher.html (see gotchigarden repo). Auth/prices/seating/photo-export
-   intentionally left out of this first pass — see TeacherDashboard.jsx's
+   intentionally left out of this first pass (seating has since been added —
+   see the Seating section at the end) — see TeacherDashboard.jsx's
    header comment for scope. (CSV import was originally on this list too,
    but has since been added.) */
 
@@ -376,9 +377,9 @@
 /* A fixed grid sized to the room available — 4x4 on a landscape iPad
    (Taylor's classes max out at 16), 3x6 in portrait — so a full class shows
    at once without scrolling, and card height stays the same no matter how
-   many students there are. Doubles as the layout the seating-arrangement
-   feature will eventually reorder. Falls back to scrolling if a class ever
-   has more than fits. */
+   many students there are. The alternative to the seating view below
+   (Seats/Grid toggle in the toolbar). Falls back to scrolling if a class
+   ever has more than fits. */
 .teacher-student-grid {
   --cols: 3;
   --rows: 6;
@@ -727,4 +728,290 @@
   .teacher-student-remove {
     touch-action: manipulation;
   }
+}
+
+/* ── Seating ─────────────────────────────────────────────────────────
+   See SeatingMap.jsx. Everything inside .seat-room is laid out in room
+   units (seating.js) and scaled as a whole by one transform, so sizes here
+   are at a scale of 1 — a desk is 160x150. */
+
+.teacher-view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.teacher-view-toggle button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 6px 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.teacher-view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+.teacher-view-toggle button.active {
+  background: var(--raised);
+  color: var(--cyan);
+}
+.teacher-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.seat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.seat-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: rgba(78, 240, 216, 0.06);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.seat-mode-hint {
+  font-size: 11px;
+  color: var(--cyan);
+}
+.seat-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.seat-room-frame {
+  position: relative;
+  flex-shrink: 0;
+}
+.seat-room {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.seat-room.mode-edit {
+  background-image: radial-gradient(circle, rgba(112, 112, 160, 0.35) 1px, transparent 1px);
+  background-size: 20px 20px;
+  outline: 1px dashed var(--border);
+}
+
+.seat-fixture {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  background: rgba(112, 112, 160, 0.18);
+  color: var(--muted);
+  overflow: hidden;
+}
+.seat-fixture-teacher {
+  border-color: #ff8a3d;
+  background: rgba(255, 138, 61, 0.16);
+  color: #ffb27a;
+}
+.seat-fixture-label {
+  font-size: 14px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.seat-fixture-label.vertical {
+  writing-mode: vertical-rl;
+}
+
+.seat-desk {
+  position: absolute;
+  box-sizing: border-box;
+}
+.seat-desk.view > .teacher-student-card {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+}
+/* The room is scaled down to fit (~0.75 on a landscape iPad), so the card
+   text is bumped up here to land at roughly the grid view's sizes once
+   scaled. */
+.seat-desk.view .teacher-student-name {
+  font-size: 16px;
+  min-height: 30px;
+  padding: 0;
+}
+.seat-desk.view .teacher-confirmed-pts {
+  font-size: 12px;
+}
+.seat-desk.view .teacher-coin-icon {
+  width: 14px;
+  height: 14px;
+}
+.seat-desk.view .teacher-pending-badge {
+  font-size: 12px;
+}
+.seat-desk.view .teacher-pts-input {
+  height: 46px;
+  font-size: 18px;
+}
+.seat-desk.view .teacher-pts-btn.plus {
+  height: 46px;
+  font-size: 24px;
+}
+.seat-desk.view .teacher-growth-label {
+  font-size: 11px;
+}
+.seat-desk.view .teacher-growth-meter {
+  height: 8px;
+}
+.seat-desk.empty {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.seat-desk-name {
+  font-size: 15px;
+  max-width: 100%;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seat-desk.empty .seat-desk-name {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+.dim {
+  opacity: 0.25;
+}
+
+/* Arrange mode: name-only desks you tap (no +1 to hit by accident). */
+.seat-desk.arrange {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--raised);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+.seat-desk.arrange.empty {
+  background: none;
+  border-style: dashed;
+}
+.seat-desk.arrange.target {
+  border-color: var(--cyan);
+}
+.seat-desk.arrange.selected {
+  border: 3px solid var(--yellow);
+  box-shadow: 0 0 16px rgba(255, 224, 102, 0.45);
+}
+
+/* Edit room mode: draggable desks. */
+.seat-desk.edit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--raised);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--muted);
+}
+.seat-desk.edit,
+.mode-edit .seat-fixture {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.seat-desk.edit.selected {
+  border: 3px solid var(--accent);
+  color: var(--text);
+}
+.seat-desk.dragging,
+.seat-fixture.dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+  z-index: 5;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+/* Students without a desk: full cards in view mode (they still need +1),
+   tappable chips in arrange mode, where the whole strip is also the
+   "unseat" target. */
+.seat-unseated {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.seat-unseated.arrange {
+  cursor: pointer;
+}
+.seat-unseated-label {
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.seat-unseated-tip {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--cyan);
+  font-size: 10px;
+}
+.seat-unseated-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  align-items: center;
+  min-height: 32px;
+}
+.seat-unseated-card {
+  position: relative;
+  flex-shrink: 0;
+}
+.seat-unseated-card > .seat-desk {
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.seat-chip {
+  background: var(--raised);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.seat-chip.selected {
+  border-color: var(--yellow);
+  color: var(--yellow);
+  box-shadow: 0 0 10px rgba(255, 224, 102, 0.4);
 }

@@ -7,7 +7,7 @@
 -- file). See CLAUDE.md's Database section for the setup steps this fits
 -- into (creating the project, enabling the Google auth provider, etc).
 --
--- Three tables, all scoped to the signed-in teacher via row-level
+-- Four tables, all scoped to the signed-in teacher via row-level
 -- security (owner_id = auth.uid()) — no anonymous/public read path by
 -- design (see CLAUDE.md: the island view also requires sign-in). On top
 -- of that, every policy also requires is_allowed_owner() below — the app
@@ -27,6 +27,11 @@ create table public.classes (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
+  -- Who sits where in the shared room layout (see room_layouts below):
+  -- { "<deskId>": "<studentId>", ... }. Entries pointing at a desk or
+  -- student that no longer exists are simply ignored by the app (see
+  -- src/teacher/seating.js's resolveSeating), never cleaned up here.
+  seating jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -82,6 +87,23 @@ create table public.user_settings (
   current_class_id uuid references public.classes(id) on delete set null
 );
 
+-- The physical room: where the desks and fixtures (teacher's desk, Smart
+-- Board, ...) are. One layout shared by every class for now — only
+-- classes.seating differs per class. The app only uses a teacher's first
+-- row; more rows are room for other arrangement styles later. No row at
+-- all means the built-in default (src/teacher/seating.js's
+-- DEFAULT_ROOM_LAYOUT) — one is inserted the first time the room is
+-- edited. `layout` is { desks: [{id, x, y}], fixtures: [{id, kind,
+-- label, x, y, w, h}] } in room units — see seating.js.
+create table public.room_layouts (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  name text not null default 'Classroom',
+  layout jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create or replace function public.set_updated_at()
 returns trigger as $$
 begin
@@ -92,6 +114,10 @@ $$ language plpgsql;
 
 create trigger students_set_updated_at
 before update on public.students
+for each row execute function public.set_updated_at();
+
+create trigger room_layouts_set_updated_at
+before update on public.room_layouts
 for each row execute function public.set_updated_at();
 
 -- Locked down to two accounts for now (explicit request — may open up
@@ -109,6 +135,7 @@ $$ language sql stable;
 alter table public.classes enable row level security;
 alter table public.students enable row level security;
 alter table public.user_settings enable row level security;
+alter table public.room_layouts enable row level security;
 
 create policy "owner full access" on public.classes
   for all
@@ -133,8 +160,13 @@ create policy "owner full access" on public.user_settings
   using (owner_id = auth.uid() and public.is_allowed_owner())
   with check (owner_id = auth.uid() and public.is_allowed_owner());
 
+create policy "owner full access" on public.room_layouts
+  for all
+  using (owner_id = auth.uid() and public.is_allowed_owner())
+  with check (owner_id = auth.uid() and public.is_allowed_owner());
+
 -- Realtime: both TeacherDashboard and IslandView subscribe to changes on
--- all three tables (src/data/useClassroomStore.js) so every signed-in
+-- every table (src/data/useClassroomStore.js) so every signed-in
 -- device — the teacher's device and whatever's projecting the island —
 -- stays live without a reload.
-alter publication supabase_realtime add table public.classes, public.students, public.user_settings;
+alter publication supabase_realtime add table public.classes, public.students, public.user_settings, public.room_layouts;

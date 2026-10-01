@@ -35,7 +35,7 @@
 // column now instead of part of a localStorage blob. growth.js itself
 // doesn't change at all.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabaseClient.js';
 import { newStudentProgress, applyPointsToGrowth, advanceGrowth, POINTS_PER_GROWTH } from '../game/growth.js';
 
@@ -57,6 +57,12 @@ function rowToStudent(row) {
     equippedAccessory: row.equipped_accessory ?? null, // {id, x, y} | null
     nickname: row.nickname ?? null, // shown above the field tama instead of `name` when set — see IslandView.jsx's NameTag
   };
+}
+
+// classes rows carry their own seating (a { deskId: studentId } object —
+// see src/teacher/seating.js) alongside the name.
+function rowToClass(row) {
+  return { id: row.id, name: row.name, seating: row.seating ?? {} };
 }
 
 function sleep(ms) {
@@ -179,6 +185,13 @@ export function useClassroomStore(session) {
   const [classes, setClasses] = useState([]); // [{id, name}]
   const [students, setStudents] = useState([]); // flat, ALL of this user's students across every class — filter to one class's roster the same way `activeClass?.students` used to
   const [currentClassId, setCurrentClassId] = useState(null);
+  // The shared room layout row ({ id, layout }), or null until Taylor
+  // first edits the room — callers fall back to seating.js's
+  // DEFAULT_ROOM_LAYOUT in that case. room_layouts can hold more than one
+  // row (for other arrangement styles later), but only the first is used
+  // for now.
+  const [roomLayout, setRoomLayout] = useState(null);
+  const layoutInsertRef = useRef(null); // the first-ever room_layouts insert, while in flight — see saveRoomLayout
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -202,10 +215,14 @@ export function useClassroomStore(session) {
     setLoading(true);
 
     async function loadInitial() {
-      const [classesRes, studentsRes, settingsRes] = await Promise.all([
-        supabase.from('classes').select('id, name').order('created_at'),
+      const [classesRes, studentsRes, settingsRes, layoutRes] = await Promise.all([
+        // '*' rather than naming columns so a not-yet-run migration (e.g.
+        // classes.seating) degrades to the default instead of failing
+        // the whole load.
+        supabase.from('classes').select('*').order('created_at'),
         supabase.from('students').select('*').order('name'),
         supabase.from('user_settings').select('current_class_id').maybeSingle(),
+        supabase.from('room_layouts').select('id, layout').order('created_at').limit(1).maybeSingle(),
       ]);
       if (cancelled) return;
       const firstError = classesRes.error || studentsRes.error || settingsRes.error;
@@ -214,7 +231,12 @@ export function useClassroomStore(session) {
         setLoading(false);
         return;
       }
-      setClasses(classesRes.data ?? []);
+      setClasses((classesRes.data ?? []).map(rowToClass));
+      // Not fatal like the three above: the seating view just uses the
+      // default layout, but saving room edits will error until the
+      // migration that adds room_layouts has been run.
+      if (layoutRes.error) setError(layoutRes.error.message);
+      else setRoomLayout(layoutRes.data ?? null);
       setStudents((studentsRes.data ?? []).map(rowToStudent));
       setCurrentClassId(settingsRes.data?.current_class_id ?? null);
       setLoading(false);
@@ -227,7 +249,16 @@ export function useClassroomStore(session) {
     const channel = supabase
       .channel(`classroom-store-${userId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'classes' }, (payload) => {
-        setClasses((prev) => applyRowChange(prev, payload, (r) => ({ id: r.id, name: r.name })));
+        setClasses((prev) => applyRowChange(prev, payload, rowToClass));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_layouts' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          setRoomLayout((prev) => (prev?.id === payload.old.id ? null : prev));
+          return;
+        }
+        // Only follow the row already in use (or adopt one if there's none
+        // yet) — ignores any other layouts that might exist later.
+        setRoomLayout((prev) => (!prev || prev.id === payload.new.id ? { id: payload.new.id, layout: payload.new.layout } : prev));
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, (payload) => {
         setStudents((prev) => applyRowChange(prev, payload, rowToStudent));
@@ -439,12 +470,64 @@ export function useClassroomStore(session) {
     }
   }
 
+  // Per-class seating — the whole { deskId: studentId } object each time
+  // (see SeatingMap.jsx; every arrange-mode change builds the full next
+  // object from the current one).
+  async function setClassSeating(classId, seating) {
+    const prev = classes.find((c) => c.id === classId);
+    setClasses((list) => list.map((c) => (c.id === classId ? { ...c, seating } : c)));
+    const { error: err } = await supabase.from('classes').update({ seating }).eq('id', classId);
+    if (err) {
+      setError(err.message);
+      if (prev) setClasses((list) => list.map((c) => (c.id === classId ? { ...c, seating: prev.seating } : c)));
+    }
+  }
+
+  // Saves the shared room layout — inserts the teacher's first
+  // room_layouts row the first time (until then the default layout was
+  // only ever in memory), updates that same row after. A second edit can
+  // land while that first insert is still in flight (dragging desks in
+  // quick succession), so it waits on the insert for the row id instead
+  // of inserting a duplicate.
+  async function saveRoomLayout(layout) {
+    const prev = roomLayout;
+    setRoomLayout((cur) => ({ id: cur?.id ?? null, layout }));
+    let id = prev?.id ?? (layoutInsertRef.current ? await layoutInsertRef.current : null);
+    if (!id) {
+      layoutInsertRef.current = supabase
+        .from('room_layouts')
+        .insert({ owner_id: userId, layout })
+        .select('id')
+        .single()
+        .then(({ data, error: err }) => {
+          layoutInsertRef.current = null;
+          if (err) {
+            setError(err.message);
+            setRoomLayout(prev);
+            return null;
+          }
+          setRoomLayout((cur) => ({ id: data.id, layout: cur?.layout ?? layout }));
+          return data.id;
+        });
+      await layoutInsertRef.current;
+      return;
+    }
+    const { error: err } = await supabase.from('room_layouts').update({ layout }).eq('id', id);
+    if (err) {
+      setError(err.message);
+      setRoomLayout(prev);
+    }
+  }
+
   return {
     loading,
     error,
     classes,
     students,
     currentClassId,
+    roomLayout: roomLayout?.layout ?? null,
+    setClassSeating,
+    saveRoomLayout,
     createClass,
     deleteClass,
     selectClass,
