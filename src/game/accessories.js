@@ -16,7 +16,7 @@
 // buyAccessory/setEquippedAccessory) rather than here; this file is just
 // the static catalog, same role growthChart.json plays for tamas.
 
-export const ACCESSORY_PRICE = 15; // flat for now — a price-per-item field can be added later if wanted
+export const ACCESSORY_PRICE = 50; // flat for now — a price-per-item field can be added later if wanted
 
 export const ACCESSORIES = [
   { id: 879, name: 'Cake Crown' },
