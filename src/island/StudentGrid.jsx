@@ -402,7 +402,7 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
             below. Renders regardless of showing.hidden (the brief
             adult->new-egg "gone" beat) so an equipped overlay doesn't
             flicker off during that moment. */}
-        <TileOverlay overlayId={student.equippedOverlay} />
+        <TileOverlay overlayId={student.equippedOverlay} height={32 * TILE_SCALE} />
       </div>
       <div style={nameStyle}>{student.name}</div>
       <div style={meterTrackStyle} title={`${Math.round(fraction * POINTS_PER_GROWTH)}/${POINTS_PER_GROWTH} pts to next stage`}>

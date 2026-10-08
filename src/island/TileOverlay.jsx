@@ -3,7 +3,14 @@
 // over whatever it's placed inside — the roster tile's sprite area
 // (StudentGrid.jsx) or My Bag's drag frame preview (TamadexToast.jsx),
 // both of which just wrap this in a position:relative container sized to
-// where the particles should play.
+// where the particles should play. `height` is that container's actual
+// pixel height — needed for 'fall' particles, since a CSS
+// translateY(115%) resolves against the PARTICLE's own tiny box (a
+// ~10-16px emoji span), not the container it's supposed to fall through;
+// passing the real height down and using it in a calc() (see
+// overlays.css's --overlay-fall-distance) is what makes a particle
+// actually travel the container's full height instead of ~15% of its own
+// size before looping.
 //
 // Per-particle randomization (left position, size, animation duration/
 // delay, horizontal drift) is computed ONCE per overlayId, in an effect —
@@ -58,7 +65,7 @@ function makeParticles(config) {
   }));
 }
 
-export default function TileOverlay({ overlayId }) {
+export default function TileOverlay({ overlayId, height }) {
   const config = overlayId ? OVERLAY_CONFIG[overlayId] : null;
   const [particles, setParticles] = useState([]);
 
@@ -92,6 +99,7 @@ export default function TileOverlay({ overlayId }) {
                 animationDuration: `${p.duration}s`,
                 animationDelay: `${p.delay}s`,
                 '--overlay-drift': `${p.drift}px`,
+                '--overlay-fall-distance': `${height}px`,
               }}
             >
               {config.symbol}

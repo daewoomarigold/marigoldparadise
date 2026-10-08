@@ -743,7 +743,7 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor, o
               : undefined
           }
         />
-        <TileOverlay overlayId={overlayId} />
+        <TileOverlay overlayId={overlayId} height={EDITOR_CHAR_SIZE} />
       </div>
     </div>
   );
