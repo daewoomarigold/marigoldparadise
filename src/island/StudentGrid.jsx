@@ -97,6 +97,7 @@ import { resolveAnimState, spriteUrl } from '../game/spriteData.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { playAddPoint } from '../sound.js';
 import { findFrameColor } from '../game/frameColors.js';
+import { tileBgStyle } from './tileAppearance.js';
 
 const GRID_SIZE = 16; // 4x4 — matches the real max class size, not just the current roster
 const TILE_SCALE = 2; // mini sprites are 32x32 native; on-screen size within the tile
@@ -165,13 +166,6 @@ function sleep(ms) {
 function snapshotFraction(snapshot) {
   return Math.max(0, Math.min(1, (snapshot.lifetimePts - snapshot.growthConsumedPts) / POINTS_PER_GROWTH));
 }
-
-// Grass-and-tree background for occupied tiles (empty slots stay plain —
-// see EmptyTile). A dark scrim is layered under it so the name/meter/dex
-// text (styled for the old flat dark background) stays legible over the
-// lighter art; imageRendering:pixelated keeps it crisp since the tile is
-// smaller on-screen than the sprite's native 128x128.
-const TILE_BG_URL = spriteUrl('image-1402.png');
 
 // The in-universe "gotchi coin" icon (16x16), used instead of a generic ★
 // so the currency reads as an actual game item rather than an abstract
@@ -751,15 +745,6 @@ const tileStyle = {
   boxSizing: 'border-box',
   overflow: 'hidden',
   fontFamily: 'ui-monospace, monospace',
-};
-
-// Layered on top of tileStyle for occupied tiles only — a dark scrim under
-// the grass art so the light-on-dark text styles below stay readable.
-const tileBgStyle = {
-  backgroundImage: `linear-gradient(rgba(10, 10, 20, 0.5), rgba(10, 10, 20, 0.5)), url(${TILE_BG_URL})`,
-  backgroundSize: 'cover',
-  backgroundPosition: 'center',
-  imageRendering: 'pixelated',
 };
 
 const nameStyle = {

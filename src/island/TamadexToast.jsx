@@ -59,10 +59,16 @@ import { ACCESSORIES, ACCESSORY_PRICE, accessorySpriteFile, findAccessory } from
 import { FRAME_COLORS, FRAME_COLOR_PRICE, findFrameColor } from '../game/frameColors.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { spriteUrl } from '../game/spriteData.js';
+import { tileBgStyle } from './tileAppearance.js';
 
 const CELL_SCALE = 1.5; // mini sprites are 32x32 native
-const EDITOR_SCALE = 4; // My Bag's positioning frame — base sprites are 64x64 native, so the tama itself renders at 256x256
-const EDITOR_CHAR_SIZE = 64 * EDITOR_SCALE; // 256 — the tama's own rendered bounding box
+// My Bag's positioning frame — base sprites are 64x64 native. Was 4 (a
+// 256px tama); brought down a notch so the whole frame (see
+// EDITOR_FRAME_SIZE below) comfortably fits alongside the items column
+// without the card needing to be wide enough to clip on a smaller/narrower
+// browser window — see the request that added this shrink.
+const EDITOR_SCALE = 3.5;
+const EDITOR_CHAR_SIZE = 64 * EDITOR_SCALE; // 224 — the tama's own rendered bounding box
 // The drag frame itself is bigger than the tama's bounding box — extra
 // room (split evenly on all sides) to drag an accessory past the tama's
 // own edges, e.g. a hat sitting above the head, per the request that
@@ -668,7 +674,7 @@ const cardStyle = {
   // widest — that's now My Bag's items-list + drag-frame row
   // (EDITOR_FRAME_SIZE, bigger than the tama's own bounding box on
   // purpose — see DragFrame), not Tamadex's 8-column grid anymore.
-  minWidth: 760,
+  minWidth: 700,
   minHeight: 620,
   maxWidth: '90vw',
   maxHeight: '85vh',
@@ -930,19 +936,23 @@ const secondaryBtnStyle = {
   fontSize: 11,
 };
 
-// Checkerboard-ish background so a mostly-transparent accessory image is
-// still easy to see/grab while dragging. Sized to EDITOR_FRAME_SIZE (bigger
-// than the tama's own EDITOR_CHAR_SIZE bounding box) — see DragFrame's own
-// comment for why.
+// The real tile's own grass-and-scrim background (tileBgStyle, shared
+// with StudentGrid.jsx via tileAppearance.js) instead of a generic
+// transparency checkerboard — reads as an actual preview of the roster
+// tile rather than an abstract
+// editor canvas. A real background customization feature (multiple
+// choices, like frame colors) is a future follow-up; for now this is
+// just the one real background every tile already uses. Sized to
+// EDITOR_FRAME_SIZE (bigger than the tama's own EDITOR_CHAR_SIZE bounding
+// box) — see DragFrame's own comment for why. box-sizing: border-box so
+// toggling a frame color's thicker border (see DragFrame's frameColor
+// prop) doesn't change this element's overall footprint.
 const dragFrameStyle = {
   position: 'relative',
   width: EDITOR_FRAME_SIZE,
   height: EDITOR_FRAME_SIZE,
-  background: '#22223a',
-  backgroundImage:
-    'linear-gradient(45deg, #2a2a44 25%, transparent 25%), linear-gradient(-45deg, #2a2a44 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2a2a44 75%), linear-gradient(-45deg, transparent 75%, #2a2a44 75%)',
-  backgroundSize: '16px 16px',
-  backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+  boxSizing: 'border-box',
+  ...tileBgStyle,
   border: '1px solid #2e2e4e',
   borderRadius: 6,
   overflow: 'hidden',
