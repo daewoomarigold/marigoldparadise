@@ -75,6 +75,13 @@ create table public.students (
   -- the roster tile) — just the field's own name tag, per the request
   -- that added this.
   nickname text,
+  -- Gotchi Shop's "Customization" category — see src/game/frameColors.js
+  -- for the catalog. Same ownership/equip shape as bag/equipped_accessory
+  -- above, just simpler (a color id, not {id, x, y} — nothing to
+  -- position). Colors the border of the roster tile showing this
+  -- student's GROWING tama (StudentGrid.jsx), not the field.
+  owned_frame_colors jsonb not null default '[]'::jsonb,
+  equipped_frame_color text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

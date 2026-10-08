@@ -56,6 +56,8 @@ function rowToStudent(row) {
     bag: row.bag ?? [], // owned accessory ids — see src/game/accessories.js
     equippedAccessory: row.equipped_accessory ?? null, // {id, x, y} | null
     nickname: row.nickname ?? null, // shown above the field tama instead of `name` when set — see IslandView.jsx's NameTag
+    ownedFrameColors: row.owned_frame_colors ?? [], // owned frame color ids — see src/game/frameColors.js
+    equippedFrameColor: row.equipped_frame_color ?? null, // colors the roster tile's border — see StudentGrid.jsx
   };
 }
 
@@ -470,6 +472,41 @@ export function useClassroomStore(session) {
     }
   }
 
+  // Gotchi Shop's "Customization" category — see src/game/frameColors.js.
+  // Same shape/reasoning as buyAccessory above (spends gotchiPts, no-op if
+  // already owned or unaffordable — the shop tab is expected to have
+  // already gated the click, this just re-checks against possibly-stale
+  // local state).
+  async function buyFrameColor(student, colorId, price) {
+    if (student.ownedFrameColors.includes(colorId)) return;
+    if (student.gotchiPts < price) return;
+    const nextOwned = [...student.ownedFrameColors, colorId];
+    const nextGotchiPts = student.gotchiPts - price;
+    patchStudent(setStudents, student.id, { ownedFrameColors: nextOwned, gotchiPts: nextGotchiPts });
+    const { error: err } = await supabase
+      .from('students')
+      .update({ owned_frame_colors: nextOwned, gotchi_pts: nextGotchiPts })
+      .eq('id', student.id);
+    if (err) {
+      setError(err.message);
+      patchStudent(setStudents, student.id, { ownedFrameColors: student.ownedFrameColors, gotchiPts: student.gotchiPts });
+    }
+  }
+
+  // Equips (or, with null, unequips) one owned frame color — unlike
+  // accessories there's no position to save, just the id (nothing to
+  // drag a solid color border onto). Only ONE equipped at a time, same
+  // reasoning as setEquippedAccessory.
+  async function setEquippedFrameColor(studentId, colorId) {
+    const prev = students.find((s) => s.id === studentId);
+    patchStudent(setStudents, studentId, { equippedFrameColor: colorId });
+    const { error: err } = await supabase.from('students').update({ equipped_frame_color: colorId }).eq('id', studentId);
+    if (err) {
+      setError(err.message);
+      if (prev) patchStudent(setStudents, studentId, { equippedFrameColor: prev.equippedFrameColor });
+    }
+  }
+
   // Per-class seating — the whole { deskId: studentId } object each time
   // (see SeatingMap.jsx; every arrange-mode change builds the full next
   // object from the current one).
@@ -541,6 +578,8 @@ export function useClassroomStore(session) {
     buyAccessory,
     setEquippedAccessory,
     setNickname,
+    buyFrameColor,
+    setEquippedFrameColor,
   };
 }
 

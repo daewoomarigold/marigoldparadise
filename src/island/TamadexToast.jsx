@@ -20,12 +20,16 @@
 // yellow with a star, in whichever section it's actually in. Anything not
 // yet reached/collected isn't clickable — nothing to display.
 //
-// Gotchi Shop tab: its own secondary tab row — Accessories (built out, see
-// ShopTab/ACCESSORIES in accessories.js) and Customization (a placeholder
-// for now; what actually goes in it hasn't been decided yet). Buying an
-// accessory spends gotchiPts and adds it to the student's bag (see
-// useClassroomStore.js's buyAccessory) — it isn't equipped automatically,
-// that happens in My Bag.
+// Gotchi Shop tab: its own secondary tab row — Accessories (see
+// ShopTab/ACCESSORIES in accessories.js) and Customization (see
+// FRAME_COLORS in frameColors.js — solid-color borders for the roster
+// tile showing a student's growing tama, StudentGrid.jsx's tileStyle;
+// more customization categories can join this one later). Buying spends
+// gotchiPts either way. Accessories go into the student's bag unequipped
+// (see useClassroomStore.js's buyAccessory) — equipping happens in My Bag,
+// since there's a position to choose. Frame colors have no position to
+// choose, so an owned one equips/unequips right in the shop instead (see
+// useClassroomStore.js's buyFrameColor/setEquippedFrameColor).
 //
 // My Bag tab: a grid of owned accessories next to a drag-anywhere frame
 // showing the student's own field tama. On open the frame already shows
@@ -42,6 +46,7 @@
 import { useRef, useState } from 'react';
 import { allAdults, allBabiesAndToddlers, findTamaName, resolveDisplayTama, visitedEarlyStageIds } from '../game/growth.js';
 import { ACCESSORIES, ACCESSORY_PRICE, accessorySpriteFile, findAccessory } from '../game/accessories.js';
+import { FRAME_COLORS, FRAME_COLOR_PRICE, findFrameColor } from '../game/frameColors.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { spriteUrl } from '../game/spriteData.js';
 
@@ -63,7 +68,16 @@ const TABS = [
   { id: 'bag', label: 'My Bag' },
 ];
 
-export default function TamadexToast({ student, onSelectDisplay, onBuyAccessory, onSetEquippedAccessory, onSetNickname, onClose }) {
+export default function TamadexToast({
+  student,
+  onSelectDisplay,
+  onBuyAccessory,
+  onSetEquippedAccessory,
+  onSetNickname,
+  onBuyFrameColor,
+  onSetEquippedFrameColor,
+  onClose,
+}) {
   const [activeTab, setActiveTab] = useState('tamadex');
 
   return (
@@ -90,7 +104,14 @@ export default function TamadexToast({ student, onSelectDisplay, onBuyAccessory,
           </div>
           <div style={contentStyle}>
             {activeTab === 'tamadex' && <TamadexTab student={student} onSelectDisplay={onSelectDisplay} />}
-            {activeTab === 'shop' && <ShopTab student={student} onBuyAccessory={onBuyAccessory} />}
+            {activeTab === 'shop' && (
+              <ShopTab
+                student={student}
+                onBuyAccessory={onBuyAccessory}
+                onBuyFrameColor={onBuyFrameColor}
+                onSetEquippedFrameColor={onSetEquippedFrameColor}
+              />
+            )}
             {activeTab === 'bag' && (
               <MyBagTab student={student} onSetEquippedAccessory={onSetEquippedAccessory} onSetNickname={onSetNickname} />
             )}
@@ -180,13 +201,19 @@ const SHOP_CATEGORIES = [
   { id: 'customization', label: 'Customization' },
 ];
 
-function ShopTab({ student, onBuyAccessory }) {
+function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameColor }) {
   const [category, setCategory] = useState('accessories');
-  // The accessory id awaiting a Yes/No confirmation, or null — a click on
-  // a buyable cell opens this instead of purchasing immediately.
-  const [confirmId, setConfirmId] = useState(null);
+  // The accessory/frame-color id awaiting a Yes/No confirmation, or null —
+  // a click on a buyable cell opens this instead of purchasing
+  // immediately. Two separate pieces of state (not one "pending purchase"
+  // slot) since they're different catalogs/confirm handlers — simplest
+  // given there's only two categories so far.
+  const [confirmAccessoryId, setConfirmAccessoryId] = useState(null);
+  const [confirmColorId, setConfirmColorId] = useState(null);
   const owned = new Set(student.bag);
-  const confirmItem = confirmId != null ? findAccessory(confirmId) : null;
+  const ownedColors = new Set(student.ownedFrameColors);
+  const confirmAccessory = confirmAccessoryId != null ? findAccessory(confirmAccessoryId) : null;
+  const confirmColor = confirmColorId != null ? findFrameColor(confirmColorId) : null;
 
   return (
     <div style={{ position: 'relative' }}>
@@ -216,7 +243,7 @@ function ShopTab({ student, onBuyAccessory }) {
                   opacity: !got && !canAfford ? 0.5 : 1,
                 }}
                 title={got ? `${item.name} (owned)` : `${item.name} — ★${ACCESSORY_PRICE}`}
-                onClick={!got && canAfford ? () => setConfirmId(item.id) : undefined}
+                onClick={!got && canAfford ? () => setConfirmAccessoryId(item.id) : undefined}
               >
                 <img src={spriteUrl(accessorySpriteFile(item.id))} alt="" style={itemIconStyle} />
                 <div style={priceStyle}>{got ? 'Owned' : `★${ACCESSORY_PRICE}`}</div>
@@ -225,18 +252,59 @@ function ShopTab({ student, onBuyAccessory }) {
           })}
         </div>
       ) : (
-        <ComingSoon label="Customization" />
+        // Frame colors: no My Bag step like accessories get — there's
+        // nothing to position for a solid border color, so an owned swatch
+        // equips/unequips (toggle) right here in the shop instead.
+        <div style={gridStyle}>
+          {FRAME_COLORS.map((c) => {
+            const got = ownedColors.has(c.id);
+            const isEquipped = student.equippedFrameColor === c.id;
+            const canAfford = student.gotchiPts >= FRAME_COLOR_PRICE;
+            return (
+              <div
+                key={c.id}
+                role={got || canAfford ? 'button' : undefined}
+                style={{
+                  ...cellStyle,
+                  ...(isEquipped ? cellSelectedStyle : null),
+                  cursor: got || canAfford ? 'pointer' : 'default',
+                  opacity: !got && !canAfford ? 0.5 : 1,
+                }}
+                title={got ? (isEquipped ? `${c.name} (equipped)` : `${c.name} (owned — tap to equip)`) : `${c.name} — ★${FRAME_COLOR_PRICE}`}
+                onClick={got ? () => onSetEquippedFrameColor(isEquipped ? null : c.id) : canAfford ? () => setConfirmColorId(c.id) : undefined}
+              >
+                <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+                <div style={{ ...colorSwatchStyle, background: c.color }} />
+                <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${FRAME_COLOR_PRICE}`}</div>
+              </div>
+            );
+          })}
+        </div>
       )}
-      {confirmItem && (
+      {confirmAccessory && (
         <BuyConfirmDialog
-          item={confirmItem}
+          name={confirmAccessory.name}
           price={ACCESSORY_PRICE}
           balance={student.gotchiPts}
+          preview={<img src={spriteUrl(accessorySpriteFile(confirmAccessory.id))} alt="" style={{ ...itemIconStyle, width: 48, height: 48 }} />}
           onConfirm={() => {
-            onBuyAccessory(confirmItem.id, ACCESSORY_PRICE);
-            setConfirmId(null);
+            onBuyAccessory(confirmAccessory.id, ACCESSORY_PRICE);
+            setConfirmAccessoryId(null);
           }}
-          onCancel={() => setConfirmId(null)}
+          onCancel={() => setConfirmAccessoryId(null)}
+        />
+      )}
+      {confirmColor && (
+        <BuyConfirmDialog
+          name={confirmColor.name}
+          price={FRAME_COLOR_PRICE}
+          balance={student.gotchiPts}
+          preview={<div style={{ ...colorSwatchStyle, width: 48, height: 48, background: confirmColor.color }} />}
+          onConfirm={() => {
+            onBuyFrameColor(confirmColor.id, FRAME_COLOR_PRICE);
+            setConfirmColorId(null);
+          }}
+          onCancel={() => setConfirmColorId(null)}
         />
       )}
     </div>
@@ -245,14 +313,17 @@ function ShopTab({ student, onBuyAccessory }) {
 
 // A small Yes/No confirmation overlaid on top of the shop grid — position:
 // absolute against ShopTab's own position:relative wrapper, so it covers
-// just the shop's content area rather than the whole toast.
-function BuyConfirmDialog({ item, price, balance, onConfirm, onCancel }) {
+// just the shop's content area rather than the whole toast. `preview` is
+// whatever image/swatch represents the item — different catalogs render
+// their own (an accessory sprite vs. a plain color square), this dialog
+// doesn't need to know which.
+function BuyConfirmDialog({ name, price, balance, preview, onConfirm, onCancel }) {
   return (
     <div style={confirmBackdropStyle} onClick={onCancel}>
       <div style={confirmCardStyle} onClick={(e) => e.stopPropagation()}>
-        <img src={spriteUrl(accessorySpriteFile(item.id))} alt="" style={{ ...itemIconStyle, width: 48, height: 48 }} />
+        {preview}
         <div style={confirmTextStyle}>
-          Buy {item.name} for ★{price}?
+          Buy {name} for ★{price}?
         </div>
         <div style={balanceTableStyle}>
           <span>Current Balance:</span>
@@ -691,6 +762,13 @@ const itemIconStyle = {
   width: 32,
   height: 32,
   imageRendering: 'pixelated',
+};
+
+const colorSwatchStyle = {
+  width: 32,
+  height: 32,
+  borderRadius: 6,
+  border: '1px solid #2e2e4e',
 };
 
 const priceStyle = {

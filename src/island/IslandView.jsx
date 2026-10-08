@@ -570,6 +570,8 @@ export default function IslandView() {
           onBuyAccessory={(accessoryId, price) => store.buyAccessory(selectedStudent, accessoryId, price)}
           onSetEquippedAccessory={(equipped) => store.setEquippedAccessory(selectedStudent.id, equipped)}
           onSetNickname={(nickname) => store.setNickname(selectedStudent.id, nickname)}
+          onBuyFrameColor={(colorId, price) => store.buyFrameColor(selectedStudent, colorId, price)}
+          onSetEquippedFrameColor={(colorId) => store.setEquippedFrameColor(selectedStudent.id, colorId)}
           onClose={() => setSelectedStudentId(null)}
         />
       )}

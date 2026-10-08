@@ -96,6 +96,7 @@ import { meterFraction, POINTS_PER_GROWTH } from '../game/growth.js';
 import { resolveAnimState, spriteUrl } from '../game/spriteData.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { playAddPoint } from '../sound.js';
+import { findFrameColor } from '../game/frameColors.js';
 
 const GRID_SIZE = 16; // 4x4 — matches the real max class size, not just the current roster
 const TILE_SCALE = 2; // mini sprites are 32x32 native; on-screen size within the tile
@@ -349,10 +350,19 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
   const flashOpacity = evo?.phase === 'flashIn' || evo?.phase === 'flashHold' ? 1 : 0;
   const flashMs = evo?.phase === 'flashIn' ? EVO_FLASH_IN_MS : evo?.phase === 'flashOut' ? EVO_FLASH_OUT_MS : 0;
 
+  // Gotchi Shop's "Customization" category (see frameColors.js) — a
+  // purely cosmetic border override on this tile, the growing tama's own
+  // "frame." frameColorStyle is spread AFTER tileStyle/tileBgStyle below
+  // so it can override tileStyle's default border.
+  const equippedColor = student.equippedFrameColor ? findFrameColor(student.equippedFrameColor) : null;
+  const frameColorStyle = equippedColor
+    ? { border: `3px solid ${equippedColor.color}`, boxShadow: `0 0 6px ${equippedColor.color}` }
+    : null;
+
   return (
     <div
       role="button"
-      style={{ ...tileStyle, ...tileBgStyle, cursor: 'pointer' }}
+      style={{ ...tileStyle, ...tileBgStyle, ...frameColorStyle, cursor: 'pointer' }}
       onClick={() => onSelectStudent(student)}
     >
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 32 * TILE_SCALE }}>
