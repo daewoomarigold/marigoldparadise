@@ -14,31 +14,57 @@
    115% directly looked like it was only traveling ~20% of the tile before
    resetting, because that's exactly what it was doing (15%/115% of ~14px,
    not of the container's real height). --overlay-fall-distance (set
-   inline per particle from an actual pixel height passed down from
-   TileOverlay's caller — see that file) fixes that by giving these a real
-   pixel distance to travel instead. */
+   inline per particle from an actual pixel height, measured by
+   TileOverlay itself — see that file) fixes that by giving these a real
+   pixel distance to travel instead.
+
+   Two intermediate stops (not just start/end) swing the particle toward
+   --overlay-sway then back past center toward --overlay-drift (its final
+   resting horizontal offset), plus a touch of rotation via
+   --overlay-spin — a straight diagonal line read as too mechanical;
+   this is closer to how snow/leaves actually wander side to side as
+   they fall. Each particle gets its own randomized sway/drift/spin (see
+   TileOverlay.jsx), so they don't all swing in lockstep. */
 @keyframes overlay-fall {
-  from {
-    transform: translateY(calc(var(--overlay-fall-distance) * -0.15)) translateX(0);
+  0% {
+    transform: translateY(calc(var(--overlay-fall-distance) * -0.15)) translateX(0) rotate(0deg);
   }
-  to {
-    transform: translateY(calc(var(--overlay-fall-distance) * 1.15)) translateX(var(--overlay-drift, 0px));
+  30% {
+    transform: translateY(calc(var(--overlay-fall-distance) * 0.15)) translateX(var(--overlay-sway, 0px)) rotate(var(--overlay-spin, 0deg));
+  }
+  60% {
+    transform: translateY(calc(var(--overlay-fall-distance) * 0.55)) translateX(calc(var(--overlay-sway, 0px) * -0.7)) rotate(0deg);
+  }
+  100% {
+    transform: translateY(calc(var(--overlay-fall-distance) * 1.15)) translateX(var(--overlay-drift, 0px)) rotate(calc(var(--overlay-spin, 0deg) * -1));
   }
 }
 
+/* Self-contained loop (returns to 0,0 by 100%) with 3 waypoints instead
+   of one midpoint-and-back — reads as drifting rather than metronomically
+   bobbing. */
 @keyframes overlay-float {
   0%,
   100% {
     transform: translate(0, 0);
   }
-  50% {
-    transform: translate(var(--overlay-drift, 6px), -8px);
+  30% {
+    transform: translate(var(--overlay-sway, 6px), -7px);
+  }
+  60% {
+    transform: translate(calc(var(--overlay-sway, 6px) * -0.5), -11px);
+  }
+  85% {
+    transform: translate(var(--overlay-drift, 6px), -3px);
   }
 }
 
 .overlay-particle-fall {
   position: absolute;
   animation-name: overlay-fall;
+  /* Each overlay type sets its own via inline animationTimingFunction
+     (see TileOverlay.jsx's config.easing) — linear here is just the
+     fallback if that's ever omitted. */
   animation-timing-function: linear;
   animation-iteration-count: infinite;
 }
@@ -48,7 +74,6 @@
   animation-name: overlay-float;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
-  animation-direction: alternate;
 }
 
 .overlay-particle-static {

@@ -34,13 +34,19 @@ import './overlays.css';
 
 // type: 'fall' (drifts top to bottom, loops — snow/rain/leaves), 'float'
 // (gently bobs in place — ghosts), or 'static' (fixed corner decoration,
-// no animation — spiderwebs). durationRange/driftRange only apply to
-// fall/float; corners only applies to static.
+// no animation — spiderwebs). durationRange/driftRange/spinRange/easing
+// only apply to fall/float; corners only applies to static. driftRange
+// bounds BOTH the mid-fall sway and the final horizontal resting offset
+// (two independent rolls — see makeParticles) — a single straight
+// diagonal read as too mechanical, so each particle now swings toward one
+// random offset then partway back toward another, rather than a straight
+// line from A to B. spinRange (degrees) adds a touch of rotation for
+// leaves tumbling; left at 0 for snow/rain, which shouldn't visibly spin.
 const OVERLAY_CONFIG = {
-  snow: { type: 'fall', symbol: '❄️', count: 10, sizeRange: [8, 14], durationRange: [3.5, 6], driftRange: 20, opacity: 0.85 },
-  rain: { type: 'fall', symbol: '💧', count: 14, sizeRange: [6, 10], durationRange: [0.6, 1.1], driftRange: 4, opacity: 0.75 },
-  leaves: { type: 'fall', symbol: '🍂', count: 7, sizeRange: [10, 16], durationRange: [4, 7], driftRange: 30, opacity: 0.9 },
-  ghosts: { type: 'float', symbol: '👻', count: 2, sizeRange: [16, 20], durationRange: [2.5, 4], driftRange: 10, opacity: 0.8 },
+  snow: { type: 'fall', symbol: '❄️', count: 14, sizeRange: [8, 14], durationRange: [3.5, 6.5], driftRange: 26, spinRange: 20, easing: 'ease-in-out', opacity: 0.85 },
+  rain: { type: 'fall', symbol: '💧', count: 18, sizeRange: [6, 10], durationRange: [0.5, 1], driftRange: 6, spinRange: 0, easing: 'linear', opacity: 0.75 },
+  leaves: { type: 'fall', symbol: '🍂', count: 9, sizeRange: [10, 16], durationRange: [3.5, 6.5], driftRange: 38, spinRange: 180, easing: 'ease-in-out', opacity: 0.9 },
+  ghosts: { type: 'float', symbol: '👻', count: 3, sizeRange: [16, 20], durationRange: [3, 5], driftRange: 14, opacity: 0.8 },
   spiderwebs: { type: 'static', symbol: '🕸️', sizeRange: [18, 24], opacity: 0.6, corners: ['top-left', 'bottom-right'] },
 };
 
@@ -67,7 +73,12 @@ function makeParticles(config) {
     size: sizeAt(),
     duration: minDuration + Math.random() * (maxDuration - minDuration),
     delay: -Math.random() * maxDuration, // negative delay starts the particle already mid-flight, so they're staggered from the very first paint instead of all starting together
+    // Two independent rolls, not one — sway is the mid-animation swing,
+    // drift is where it actually ends up; being different values is what
+    // makes the path wander instead of tracing one straight line.
+    sway: (Math.random() - 0.5) * 2 * config.driftRange,
     drift: (Math.random() - 0.5) * 2 * config.driftRange,
+    spin: config.spinRange ? (Math.random() - 0.5) * 2 * config.spinRange : 0,
   }));
 }
 
@@ -118,7 +129,10 @@ export default function TileOverlay({ overlayId }) {
                 opacity: config.opacity,
                 animationDuration: `${p.duration}s`,
                 animationDelay: `${p.delay}s`,
+                animationTimingFunction: config.easing,
+                '--overlay-sway': `${p.sway}px`,
                 '--overlay-drift': `${p.drift}px`,
+                '--overlay-spin': `${p.spin}deg`,
                 '--overlay-fall-distance': `${height}px`,
               }}
             >
