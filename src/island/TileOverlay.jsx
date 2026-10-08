@@ -43,9 +43,9 @@ import './overlays.css';
 // line from A to B. spinRange (degrees) adds a touch of rotation for
 // leaves tumbling; left at 0 for snow/rain, which shouldn't visibly spin.
 const OVERLAY_CONFIG = {
-  snow: { type: 'fall', symbol: '❄️', count: 14, sizeRange: [8, 14], durationRange: [3.5, 6.5], driftRange: 26, spinRange: 20, easing: 'ease-in-out', opacity: 0.85 },
-  rain: { type: 'fall', symbol: '💧', count: 18, sizeRange: [6, 10], durationRange: [0.5, 1], driftRange: 6, spinRange: 0, easing: 'linear', opacity: 0.75 },
-  leaves: { type: 'fall', symbol: '🍂', count: 9, sizeRange: [10, 16], durationRange: [3.5, 6.5], driftRange: 38, spinRange: 180, easing: 'ease-in-out', opacity: 0.9 },
+  snow: { type: 'fall', symbol: '❄️', count: 14, sizeRange: [8, 14], durationRange: [5.5, 9.5], driftRange: 26, spinRange: 20, easing: 'ease-in-out', opacity: 0.85 },
+  rain: { type: 'fall', symbol: '💧', count: 18, sizeRange: [6, 10], durationRange: [0.8, 1.4], driftRange: 6, spinRange: 0, easing: 'linear', opacity: 0.75 },
+  leaves: { type: 'fall', symbol: '🍂', count: 9, sizeRange: [10, 16], durationRange: [5.5, 9.5], driftRange: 38, spinRange: 180, easing: 'ease-in-out', opacity: 0.9 },
   ghosts: { type: 'float', symbol: '👻', count: 3, sizeRange: [16, 20], durationRange: [3, 5], driftRange: 14, opacity: 0.8 },
   spiderwebs: { type: 'static', symbol: '🕸️', sizeRange: [18, 24], opacity: 0.6, corners: ['top-left', 'bottom-right'] },
 };
