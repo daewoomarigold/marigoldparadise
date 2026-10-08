@@ -34,17 +34,24 @@
 // Customization instead (see useClassroomStore.js's buyFrameColor/
 // setEquippedFrameColor).
 //
-// My Bag tab: a grid of owned accessories next to a drag-anywhere frame
-// showing the student's own field tama. On open the frame already shows
-// whatever's currently equipped, at its saved position, so the student's
-// current look is visible straight away without tapping anything. Pick an
-// item to preview it in the frame instead, with that accessory overlaid (see
-// spriteCompositor.jsx's TamaComposite `accessory` prop) — drag it where
-// you want, then "Equip here" saves that exact position and equips it
-// (useClassroomStore.js's setEquippedAccessory), which is what actually
-// makes it show up on the island field. Only one accessory equipped at a
-// time, by design — simpler data model/rendering, easy to revisit later
-// if multiple-at-once turns out to be wanted.
+// My Bag tab: a grid of owned accessories, then owned frame colors
+// ("Customizations" — see frameColors.js) below it, both next to a single
+// drag-anywhere frame (DragFrame) showing the student's own field tama. On
+// open the frame already shows whatever's currently equipped (both an
+// accessory AND a frame color, independently — they're not mutually
+// exclusive), so the student's current look is visible straight away
+// without tapping anything. Pick an accessory to preview it in the frame
+// instead, with it overlaid (see spriteCompositor.jsx's TamaComposite
+// `accessory` prop) — drag it where you want, then "Equip here" saves
+// that exact position and equips it (useClassroomStore.js's
+// setEquippedAccessory), which is what actually makes it show up on the
+// island field. Frame colors have no position to choose, so tapping an
+// owned swatch just equips/unequips it immediately, drawn as a border
+// AROUND the frame's red bounding box (see DragFrame's `frameColor` prop)
+// — the same treatment StudentGrid.jsx's real tile gets. Only one
+// accessory AND one frame color equipped at a time, by design — simpler
+// data model/rendering, easy to revisit later if multiple-at-once turns
+// out to be wanted.
 
 import { useRef, useState } from 'react';
 import { allAdults, allBabiesAndToddlers, findTamaName, resolveDisplayTama, visitedEarlyStageIds } from '../game/growth.js';
@@ -116,7 +123,12 @@ export default function TamadexToast({
               />
             )}
             {activeTab === 'bag' && (
-              <MyBagTab student={student} onSetEquippedAccessory={onSetEquippedAccessory} onSetNickname={onSetNickname} />
+              <MyBagTab
+                student={student}
+                onSetEquippedAccessory={onSetEquippedAccessory}
+                onSetNickname={onSetNickname}
+                onSetEquippedFrameColor={onSetEquippedFrameColor}
+              />
             )}
           </div>
         </div>
@@ -399,7 +411,7 @@ function BuyConfirmDialog({ name, price, balance, preview, onConfirm, onCancel }
   );
 }
 
-function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
+function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippedFrameColor }) {
   const equipped = student.equippedAccessory;
   // Nothing pre-selected on open (no item highlighted in the grid, no
   // Equip button), but the frame still shows what's equipped right now,
@@ -421,8 +433,17 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
     setPos(equipped?.id === id ? { x: equipped.x, y: equipped.y } : { x: 0, y: 0 });
   }
 
+  // Frame colors have no position to fine-tune, so there's no equivalent
+  // "pick then drag then Equip here" flow — tapping an owned swatch just
+  // toggles it equipped immediately (same as Customization's own shop
+  // panel), and the frame preview below updates to match right away.
+  function toggleColor(id) {
+    onSetEquippedFrameColor(student.equippedFrameColor === id ? null : id);
+  }
+
   const { stage, tamaId } = resolveDisplayTama(student);
   const selected = selectedId != null ? findAccessory(selectedId) : null;
+  const equippedColor = student.equippedFrameColor ? findFrameColor(student.equippedFrameColor) : null;
 
   return (
     <div style={bagLayoutStyle}>
@@ -431,7 +452,7 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
         {student.bag.length === 0 ? (
           <ComingSoon label="Nothing in the bag yet — visit the Gotchi Shop" />
         ) : (
-          <div style={bagGridStyle}>
+          <div style={{ ...bagGridStyle, marginBottom: 16 }}>
             {student.bag.map((id) => {
               const item = findAccessory(id);
               if (!item) return null;
@@ -447,6 +468,30 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
                 >
                   <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
                   <img src={spriteUrl(accessorySpriteFile(id))} alt="" style={itemIconStyle} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={sectionLabelStyle}>Customizations</div>
+        {student.ownedFrameColors.length === 0 ? (
+          <ComingSoon label="No frame colors yet — visit the Gotchi Shop" />
+        ) : (
+          <div style={bagGridStyle}>
+            {student.ownedFrameColors.map((id) => {
+              const color = findFrameColor(id);
+              if (!color) return null;
+              const isEquipped = student.equippedFrameColor === id;
+              return (
+                <div
+                  key={id}
+                  role="button"
+                  style={{ ...cellStyle, ...(isEquipped ? cellSelectedStyle : null), cursor: 'pointer' }}
+                  title={isEquipped ? `${color.name} (equipped — tap to unequip)` : color.name}
+                  onClick={() => toggleColor(id)}
+                >
+                  <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+                  <FrameSwatch color={color.color} />
                 </div>
               );
             })}
@@ -468,7 +513,14 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname }) {
             'Pick an item to position it'
           )}
         </div>
-        <DragFrame stage={stage} tamaId={tamaId} accessoryId={previewId} pos={previewPos} onPosChange={moveInFrame} />
+        <DragFrame
+          stage={stage}
+          tamaId={tamaId}
+          accessoryId={previewId}
+          pos={previewPos}
+          onPosChange={moveInFrame}
+          frameColor={equippedColor?.color}
+        />
         <div style={editorActionsStyle}>
           {selected && (
             <button style={primaryBtnStyle} onClick={() => onSetEquippedAccessory({ id: selectedId, x: pos.x, y: pos.y })}>
@@ -538,7 +590,7 @@ function NicknameEditor({ student, onSetNickname }) {
 // that bigger frame; a red rectangle drawn at the same offset marks
 // exactly where the tama's own bounding box is, so it's clear how far
 // "past the edge" any given drag actually is.
-function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange }) {
+function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor }) {
   const dragRef = useRef(null); // {startClientX, startClientY, startPosX, startPosY} | null
   const isEgg = stage === 'egg';
 
@@ -556,8 +608,15 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange }) {
     dragRef.current = null;
   }
 
+  // Previewing a frame color (see frameColors.js) puts it around the
+  // OUTSIDE of the red bounding box — dragFrameStyle's own border, the
+  // same treatment StudentGrid.jsx's real tile gets — rather than
+  // replacing the red rectangle itself, which stays put marking the
+  // tama's actual bounds regardless of what frame color is selected.
+  const frameColorStyle = frameColor ? { border: `3px solid ${frameColor}`, boxShadow: `0 0 6px ${frameColor}` } : null;
+
   return (
-    <div style={dragFrameStyle}>
+    <div style={{ ...dragFrameStyle, ...frameColorStyle }}>
       <div style={dragFrameBoundsStyle} />
       <div style={dragFrameCharStyle}>
         <TamaComposite
