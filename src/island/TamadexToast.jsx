@@ -22,19 +22,19 @@
 //
 // Gotchi Shop tab: its own secondary tab row — Accessories (see
 // ShopTab/ACCESSORIES in accessories.js) and Customization. Customization
-// has a THIRD tab level of its own (CustomizationTab/CUSTOMIZATION_
-// CATEGORIES): "Frames" (FRAME_COLORS in frameColors.js — solid-color
-// borders for the roster tile showing a student's growing tama,
-// StudentGrid.jsx's tileStyle) and "Overlays" (OVERLAYS in overlays.js —
-// small looping particle effects, e.g. falling snow, animated over that
-// same tile via TileOverlay.jsx; there's no sprite art for these at all,
-// so they're drawn procedurally from emoji + CSS, not image files), with
-// room for more subcategories later without restructuring. Buying spends
-// gotchiPts either way. Accessories go into the student's bag unequipped
-// (see useClassroomStore.js's buyAccessory) — equipping happens in My
-// Bag, since there's a position to choose. Frame colors/overlays have no
-// position to choose, so an owned one equips/unequips right in
-// Customization instead (see useClassroomStore.js's buyFrameColor/
+// itself (CustomizationTab) has two catalogs stacked on one page, not a
+// further tab switch between them: "Frames" (FRAME_COLORS in
+// frameColors.js — solid-color borders for the roster tile showing a
+// student's growing tama, StudentGrid.jsx's tileStyle) and "Overlays"
+// (OVERLAYS in overlays.js — small looping particle effects, e.g. falling
+// snow, animated over that same tile via TileOverlay.jsx; there's no
+// sprite art for these at all, so they're drawn procedurally from emoji +
+// CSS, not image files). Buying spends gotchiPts either way. Accessories
+// go into the student's bag unequipped (see useClassroomStore.js's
+// buyAccessory) — equipping happens in My Bag, since there's a position
+// to choose. Frame colors/overlays have no position to choose, so an
+// owned one equips/unequips right in Customization instead (see
+// useClassroomStore.js's buyFrameColor/
 // setEquippedFrameColor and buyOverlay/setEquippedOverlay).
 //
 // My Bag tab: a grid of owned accessories, then owned frame colors and
@@ -334,13 +334,7 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
 // more subcategories later" (a background category, say). Self-contained:
 // owns its own confirm-dialog state rather than sharing ShopTab's, since
 // each subcategory here is its own little catalog/flow.
-const CUSTOMIZATION_CATEGORIES = [
-  { id: 'frames', label: 'Frames' },
-  { id: 'overlays', label: 'Overlays' },
-];
-
 function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor, onBuyOverlay, onSetEquippedOverlay }) {
-  const [subCategory, setSubCategory] = useState('frames');
   const [confirmColorId, setConfirmColorId] = useState(null);
   const [confirmOverlayId, setConfirmOverlayId] = useState(null);
   const ownedColors = new Set(student.ownedFrameColors);
@@ -350,77 +344,67 @@ function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor, o
 
   return (
     <div>
-      <div style={subTabRowStyle}>
-        {CUSTOMIZATION_CATEGORIES.map((sc) => (
-          <button
-            key={sc.id}
-            style={{ ...subTabBtnStyle, ...(subCategory === sc.id ? subTabBtnActiveStyle : null) }}
-            onClick={() => setSubCategory(sc.id)}
-          >
-            {sc.label}
-          </button>
-        ))}
+      {/* Frames and Overlays both on one page (no sub-tab switch between
+          them, per request) — same stacked-sections layout My Bag's own
+          "Customizations" area already uses for the same two catalogs. */}
+      <div style={sectionLabelStyle}>Frames</div>
+      {/* No My Bag step like accessories get — there's nothing to
+          position for a solid border color, so an owned swatch
+          equips/unequips (toggle) right here instead. */}
+      <div style={{ ...gridStyle, marginBottom: 16 }}>
+        {FRAME_COLORS.map((c) => {
+          const got = ownedColors.has(c.id);
+          const isEquipped = student.equippedFrameColor === c.id;
+          const canAfford = student.gotchiPts >= FRAME_COLOR_PRICE;
+          return (
+            <div
+              key={c.id}
+              role={got || canAfford ? 'button' : undefined}
+              style={{
+                ...cellStyle,
+                ...(isEquipped ? cellSelectedStyle : null),
+                cursor: got || canAfford ? 'pointer' : 'default',
+                opacity: !got && !canAfford ? 0.5 : 1,
+              }}
+              title={got ? (isEquipped ? `${c.name} (equipped)` : `${c.name} (owned — tap to equip)`) : `${c.name} — ★${FRAME_COLOR_PRICE}`}
+              onClick={got ? () => onSetEquippedFrameColor(isEquipped ? null : c.id) : canAfford ? () => setConfirmColorId(c.id) : undefined}
+            >
+              <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+              <FrameSwatch color={c.color} />
+              <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${FRAME_COLOR_PRICE}`}</div>
+            </div>
+          );
+        })}
       </div>
-      {subCategory === 'frames' && (
-        // No My Bag step like accessories get — there's nothing to
-        // position for a solid border color, so an owned swatch
-        // equips/unequips (toggle) right here instead.
-        <div style={gridStyle}>
-          {FRAME_COLORS.map((c) => {
-            const got = ownedColors.has(c.id);
-            const isEquipped = student.equippedFrameColor === c.id;
-            const canAfford = student.gotchiPts >= FRAME_COLOR_PRICE;
-            return (
-              <div
-                key={c.id}
-                role={got || canAfford ? 'button' : undefined}
-                style={{
-                  ...cellStyle,
-                  ...(isEquipped ? cellSelectedStyle : null),
-                  cursor: got || canAfford ? 'pointer' : 'default',
-                  opacity: !got && !canAfford ? 0.5 : 1,
-                }}
-                title={got ? (isEquipped ? `${c.name} (equipped)` : `${c.name} (owned — tap to equip)`) : `${c.name} — ★${FRAME_COLOR_PRICE}`}
-                onClick={got ? () => onSetEquippedFrameColor(isEquipped ? null : c.id) : canAfford ? () => setConfirmColorId(c.id) : undefined}
-              >
-                <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
-                <FrameSwatch color={c.color} />
-                <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${FRAME_COLOR_PRICE}`}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {subCategory === 'overlays' && (
-        // Same no-My-Bag-step reasoning as frames — nothing to position
-        // for a looping particle effect, so an owned one equips/unequips
-        // right here too.
-        <div style={gridStyle}>
-          {OVERLAYS.map((o) => {
-            const got = ownedOverlays.has(o.id);
-            const isEquipped = student.equippedOverlay === o.id;
-            const canAfford = student.gotchiPts >= OVERLAY_PRICE;
-            return (
-              <div
-                key={o.id}
-                role={got || canAfford ? 'button' : undefined}
-                style={{
-                  ...cellStyle,
-                  ...(isEquipped ? cellSelectedStyle : null),
-                  cursor: got || canAfford ? 'pointer' : 'default',
-                  opacity: !got && !canAfford ? 0.5 : 1,
-                }}
-                title={got ? (isEquipped ? `${o.name} (equipped)` : `${o.name} (owned — tap to equip)`) : `${o.name} — ★${OVERLAY_PRICE}`}
-                onClick={got ? () => onSetEquippedOverlay(isEquipped ? null : o.id) : canAfford ? () => setConfirmOverlayId(o.id) : undefined}
-              >
-                <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
-                <span style={overlayEmojiStyle}>{o.emoji}</span>
-                <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${OVERLAY_PRICE}`}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div style={sectionLabelStyle}>Overlays</div>
+      {/* Same no-My-Bag-step reasoning as frames — nothing to position
+          for a looping particle effect, so an owned one equips/unequips
+          right here too. */}
+      <div style={gridStyle}>
+        {OVERLAYS.map((o) => {
+          const got = ownedOverlays.has(o.id);
+          const isEquipped = student.equippedOverlay === o.id;
+          const canAfford = student.gotchiPts >= OVERLAY_PRICE;
+          return (
+            <div
+              key={o.id}
+              role={got || canAfford ? 'button' : undefined}
+              style={{
+                ...cellStyle,
+                ...(isEquipped ? cellSelectedStyle : null),
+                cursor: got || canAfford ? 'pointer' : 'default',
+                opacity: !got && !canAfford ? 0.5 : 1,
+              }}
+              title={got ? (isEquipped ? `${o.name} (equipped)` : `${o.name} (owned — tap to equip)`) : `${o.name} — ★${OVERLAY_PRICE}`}
+              onClick={got ? () => onSetEquippedOverlay(isEquipped ? null : o.id) : canAfford ? () => setConfirmOverlayId(o.id) : undefined}
+            >
+              <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+              <span style={overlayEmojiStyle}>{o.emoji}</span>
+              <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${OVERLAY_PRICE}`}</div>
+            </div>
+          );
+        })}
+      </div>
       {confirmColor && (
         <BuyConfirmDialog
           name={confirmColor.name}
