@@ -23,42 +23,50 @@
 // Gotchi Shop tab: its own secondary tab row — Accessories (see
 // ShopTab/ACCESSORIES in accessories.js) and Customization. Customization
 // has a THIRD tab level of its own (CustomizationTab/CUSTOMIZATION_
-// CATEGORIES) — just "Frames" so far (FRAME_COLORS in frameColors.js:
-// solid-color borders for the roster tile showing a student's growing
-// tama, StudentGrid.jsx's tileStyle), with room for more subcategories
-// later (a background category, say) without restructuring. Buying
-// spends gotchiPts either way. Accessories go into the student's bag
-// unequipped (see useClassroomStore.js's buyAccessory) — equipping
-// happens in My Bag, since there's a position to choose. Frame colors
-// have no position to choose, so an owned one equips/unequips right in
+// CATEGORIES): "Frames" (FRAME_COLORS in frameColors.js — solid-color
+// borders for the roster tile showing a student's growing tama,
+// StudentGrid.jsx's tileStyle) and "Overlays" (OVERLAYS in overlays.js —
+// small looping particle effects, e.g. falling snow, animated over that
+// same tile via TileOverlay.jsx; there's no sprite art for these at all,
+// so they're drawn procedurally from emoji + CSS, not image files), with
+// room for more subcategories later without restructuring. Buying spends
+// gotchiPts either way. Accessories go into the student's bag unequipped
+// (see useClassroomStore.js's buyAccessory) — equipping happens in My
+// Bag, since there's a position to choose. Frame colors/overlays have no
+// position to choose, so an owned one equips/unequips right in
 // Customization instead (see useClassroomStore.js's buyFrameColor/
-// setEquippedFrameColor).
+// setEquippedFrameColor and buyOverlay/setEquippedOverlay).
 //
-// My Bag tab: a grid of owned accessories, then owned frame colors
-// ("Customizations" — see frameColors.js) below it, both next to a single
-// drag-anywhere frame (DragFrame) showing the student's own field tama. On
-// open the frame already shows whatever's currently equipped (both an
-// accessory AND a frame color, independently — they're not mutually
-// exclusive), so the student's current look is visible straight away
-// without tapping anything. Pick an accessory to preview it in the frame
-// instead, with it overlaid (see spriteCompositor.jsx's TamaComposite
-// `accessory` prop) — drag it where you want, then "Equip here" saves
-// that exact position and equips it (useClassroomStore.js's
-// setEquippedAccessory), which is what actually makes it show up on the
-// island field. Frame colors have no position to choose, so tapping an
-// owned swatch just equips/unequips it immediately, drawn as a border
-// AROUND the frame's red bounding box (see DragFrame's `frameColor` prop)
-// — the same treatment StudentGrid.jsx's real tile gets. Only one
-// accessory AND one frame color equipped at a time, by design — simpler
-// data model/rendering, easy to revisit later if multiple-at-once turns
-// out to be wanted.
+// My Bag tab: a grid of owned accessories, then owned frame colors and
+// overlays ("Customizations" — see frameColors.js/overlays.js) below it,
+// all next to a single drag-anywhere frame (DragFrame) showing the
+// student's own field tama. On open the frame already shows whatever's
+// currently equipped (an accessory AND a frame color AND an overlay,
+// independently — none of the three are mutually exclusive), so the
+// student's current look is visible straight away without tapping
+// anything. Pick an accessory to preview it in the frame instead, with it
+// overlaid (see spriteCompositor.jsx's TamaComposite `accessory` prop) —
+// drag it where you want, then "Equip here" saves that exact position and
+// equips it (useClassroomStore.js's setEquippedAccessory), which is what
+// actually makes it show up on the island field. Frame colors/overlays
+// have no position to choose, so tapping an owned one just equips/
+// unequips it immediately: a frame color draws as a border AROUND the
+// frame's red bounding box (see DragFrame's `frameColor` prop) — the same
+// treatment StudentGrid.jsx's real tile gets — and an overlay plays right
+// over the preview tama (DragFrame's `overlayId` prop, same TileOverlay.jsx
+// component the real tile uses). Only one of each (accessory, frame
+// color, overlay) equipped at a time, by design — simpler data model/
+// rendering, easy to revisit later if multiple-at-once turns out to be
+// wanted.
 
 import { useRef, useState } from 'react';
 import { allAdults, allBabiesAndToddlers, findTamaName, resolveDisplayTama, visitedEarlyStageIds } from '../game/growth.js';
 import { ACCESSORIES, ACCESSORY_PRICE, accessorySpriteFile, findAccessory } from '../game/accessories.js';
 import { FRAME_COLORS, FRAME_COLOR_PRICE, findFrameColor } from '../game/frameColors.js';
+import { OVERLAYS, OVERLAY_PRICE, findOverlay } from '../game/overlays.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { spriteUrl } from '../game/spriteData.js';
+import TileOverlay from './TileOverlay.jsx';
 import { tileBgStyle } from './tileAppearance.js';
 
 const CELL_SCALE = 1.5; // mini sprites are 32x32 native
@@ -92,6 +100,8 @@ export default function TamadexToast({
   onSetNickname,
   onBuyFrameColor,
   onSetEquippedFrameColor,
+  onBuyOverlay,
+  onSetEquippedOverlay,
   onClose,
 }) {
   const [activeTab, setActiveTab] = useState('tamadex');
@@ -126,6 +136,8 @@ export default function TamadexToast({
                 onBuyAccessory={onBuyAccessory}
                 onBuyFrameColor={onBuyFrameColor}
                 onSetEquippedFrameColor={onSetEquippedFrameColor}
+                onBuyOverlay={onBuyOverlay}
+                onSetEquippedOverlay={onSetEquippedOverlay}
               />
             )}
             {activeTab === 'bag' && (
@@ -134,6 +146,7 @@ export default function TamadexToast({
                 onSetEquippedAccessory={onSetEquippedAccessory}
                 onSetNickname={onSetNickname}
                 onSetEquippedFrameColor={onSetEquippedFrameColor}
+                onSetEquippedOverlay={onSetEquippedOverlay}
               />
             )}
           </div>
@@ -243,7 +256,7 @@ const SHOP_CATEGORIES = [
   { id: 'customization', label: 'Customization' },
 ];
 
-function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameColor }) {
+function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameColor, onBuyOverlay, onSetEquippedOverlay }) {
   const [category, setCategory] = useState('accessories');
   // The accessory id awaiting a Yes/No confirmation, or null — a click on
   // a buyable cell opens this instead of purchasing immediately.
@@ -290,7 +303,13 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
           })}
         </div>
       ) : (
-        <CustomizationTab student={student} onBuyFrameColor={onBuyFrameColor} onSetEquippedFrameColor={onSetEquippedFrameColor} />
+        <CustomizationTab
+          student={student}
+          onBuyFrameColor={onBuyFrameColor}
+          onSetEquippedFrameColor={onSetEquippedFrameColor}
+          onBuyOverlay={onBuyOverlay}
+          onSetEquippedOverlay={onSetEquippedOverlay}
+        />
       )}
       {confirmAccessory && (
         <BuyConfirmDialog
@@ -315,13 +334,19 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
 // more subcategories later" (a background category, say). Self-contained:
 // owns its own confirm-dialog state rather than sharing ShopTab's, since
 // each subcategory here is its own little catalog/flow.
-const CUSTOMIZATION_CATEGORIES = [{ id: 'frames', label: 'Frames' }];
+const CUSTOMIZATION_CATEGORIES = [
+  { id: 'frames', label: 'Frames' },
+  { id: 'overlays', label: 'Overlays' },
+];
 
-function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor }) {
+function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor, onBuyOverlay, onSetEquippedOverlay }) {
   const [subCategory, setSubCategory] = useState('frames');
   const [confirmColorId, setConfirmColorId] = useState(null);
+  const [confirmOverlayId, setConfirmOverlayId] = useState(null);
   const ownedColors = new Set(student.ownedFrameColors);
+  const ownedOverlays = new Set(student.ownedOverlays);
   const confirmColor = confirmColorId != null ? findFrameColor(confirmColorId) : null;
+  const confirmOverlay = confirmOverlayId != null ? findOverlay(confirmOverlayId) : null;
 
   return (
     <div>
@@ -366,6 +391,36 @@ function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor })
           })}
         </div>
       )}
+      {subCategory === 'overlays' && (
+        // Same no-My-Bag-step reasoning as frames — nothing to position
+        // for a looping particle effect, so an owned one equips/unequips
+        // right here too.
+        <div style={gridStyle}>
+          {OVERLAYS.map((o) => {
+            const got = ownedOverlays.has(o.id);
+            const isEquipped = student.equippedOverlay === o.id;
+            const canAfford = student.gotchiPts >= OVERLAY_PRICE;
+            return (
+              <div
+                key={o.id}
+                role={got || canAfford ? 'button' : undefined}
+                style={{
+                  ...cellStyle,
+                  ...(isEquipped ? cellSelectedStyle : null),
+                  cursor: got || canAfford ? 'pointer' : 'default',
+                  opacity: !got && !canAfford ? 0.5 : 1,
+                }}
+                title={got ? (isEquipped ? `${o.name} (equipped)` : `${o.name} (owned — tap to equip)`) : `${o.name} — ★${OVERLAY_PRICE}`}
+                onClick={got ? () => onSetEquippedOverlay(isEquipped ? null : o.id) : canAfford ? () => setConfirmOverlayId(o.id) : undefined}
+              >
+                <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+                <span style={overlayEmojiStyle}>{o.emoji}</span>
+                <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${OVERLAY_PRICE}`}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {confirmColor && (
         <BuyConfirmDialog
           name={confirmColor.name}
@@ -377,6 +432,19 @@ function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor })
             setConfirmColorId(null);
           }}
           onCancel={() => setConfirmColorId(null)}
+        />
+      )}
+      {confirmOverlay && (
+        <BuyConfirmDialog
+          name={confirmOverlay.name}
+          price={OVERLAY_PRICE}
+          balance={student.gotchiPts}
+          preview={<span style={{ ...overlayEmojiStyle, fontSize: 48 }}>{confirmOverlay.emoji}</span>}
+          onConfirm={() => {
+            onBuyOverlay(confirmOverlay.id, OVERLAY_PRICE);
+            setConfirmOverlayId(null);
+          }}
+          onCancel={() => setConfirmOverlayId(null)}
         />
       )}
     </div>
@@ -417,7 +485,7 @@ function BuyConfirmDialog({ name, price, balance, preview, onConfirm, onCancel }
   );
 }
 
-function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippedFrameColor }) {
+function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippedFrameColor, onSetEquippedOverlay }) {
   const equipped = student.equippedAccessory;
   // Nothing pre-selected on open (no item highlighted in the grid, no
   // Equip button), but the frame still shows what's equipped right now,
@@ -439,12 +507,16 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
     setPos(equipped?.id === id ? { x: equipped.x, y: equipped.y } : { x: 0, y: 0 });
   }
 
-  // Frame colors have no position to fine-tune, so there's no equivalent
-  // "pick then drag then Equip here" flow — tapping an owned swatch just
-  // toggles it equipped immediately (same as Customization's own shop
-  // panel), and the frame preview below updates to match right away.
+  // Frame colors/overlays have no position to fine-tune, so there's no
+  // equivalent "pick then drag then Equip here" flow — tapping an owned
+  // one just toggles it equipped immediately (same as Customization's own
+  // shop panel), and the frame preview below updates to match right away.
   function toggleColor(id) {
     onSetEquippedFrameColor(student.equippedFrameColor === id ? null : id);
+  }
+
+  function toggleOverlay(id) {
+    onSetEquippedOverlay(student.equippedOverlay === id ? null : id);
   }
 
   const { stage, tamaId } = resolveDisplayTama(student);
@@ -479,11 +551,11 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
             })}
           </div>
         )}
-        <div style={sectionLabelStyle}>Customizations</div>
+        <div style={sectionLabelStyle}>Customizations — Frames</div>
         {student.ownedFrameColors.length === 0 ? (
           <ComingSoon label="No frame colors yet — visit the Gotchi Shop" />
         ) : (
-          <div style={bagGridStyle}>
+          <div style={{ ...bagGridStyle, marginBottom: 16 }}>
             {student.ownedFrameColors.map((id) => {
               const color = findFrameColor(id);
               if (!color) return null;
@@ -498,6 +570,30 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
                 >
                   <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
                   <FrameSwatch color={color.color} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={sectionLabelStyle}>Customizations — Overlays</div>
+        {student.ownedOverlays.length === 0 ? (
+          <ComingSoon label="No overlays yet — visit the Gotchi Shop" />
+        ) : (
+          <div style={bagGridStyle}>
+            {student.ownedOverlays.map((id) => {
+              const overlay = findOverlay(id);
+              if (!overlay) return null;
+              const isEquipped = student.equippedOverlay === id;
+              return (
+                <div
+                  key={id}
+                  role="button"
+                  style={{ ...cellStyle, ...(isEquipped ? cellSelectedStyle : null), cursor: 'pointer' }}
+                  title={isEquipped ? `${overlay.name} (equipped — tap to unequip)` : overlay.name}
+                  onClick={() => toggleOverlay(id)}
+                >
+                  <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+                  <span style={overlayEmojiStyle}>{overlay.emoji}</span>
                 </div>
               );
             })}
@@ -526,6 +622,7 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
           pos={previewPos}
           onPosChange={moveInFrame}
           frameColor={equippedColor?.color}
+          overlayId={student.equippedOverlay}
         />
         <div style={editorActionsStyle}>
           {selected && (
@@ -596,7 +693,7 @@ function NicknameEditor({ student, onSetNickname }) {
 // that bigger frame; a red rectangle drawn at the same offset marks
 // exactly where the tama's own bounding box is, so it's clear how far
 // "past the edge" any given drag actually is.
-function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor }) {
+function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor, overlayId }) {
   const dragRef = useRef(null); // {startClientX, startClientY, startPosX, startPosY} | null
   const isEgg = stage === 'egg';
 
@@ -646,6 +743,7 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor })
               : undefined
           }
         />
+        <TileOverlay overlayId={overlayId} />
       </div>
     </div>
   );
@@ -884,6 +982,11 @@ const itemIconStyle = {
   imageRendering: 'pixelated',
 };
 
+const overlayEmojiStyle = {
+  fontSize: 28,
+  lineHeight: 1,
+};
+
 const priceStyle = {
   fontSize: 8,
   color: '#ffe066',
@@ -960,10 +1063,15 @@ const dragFrameStyle = {
 
 // Offsets the tama composite (+ its accessory, drawn as part of the same
 // component — see TamaComposite) to sit centered within the bigger frame.
+// width/height match EDITOR_CHAR_SIZE (not just the padding offset) so
+// TileOverlay's own inset:0 has a sized, position:relative ancestor to
+// anchor against — same bounding box the red rectangle marks.
 const dragFrameCharStyle = {
   position: 'absolute',
   left: EDITOR_FRAME_PADDING,
   top: EDITOR_FRAME_PADDING,
+  width: EDITOR_CHAR_SIZE,
+  height: EDITOR_CHAR_SIZE,
 };
 
 // The red boundary rectangle marking the tama's own bounding box within

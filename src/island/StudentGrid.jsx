@@ -98,6 +98,7 @@ import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { playAddPoint } from '../sound.js';
 import { findFrameColor } from '../game/frameColors.js';
 import { tileBgStyle } from './tileAppearance.js';
+import TileOverlay from './TileOverlay.jsx';
 
 const GRID_SIZE = 16; // 4x4 — matches the real max class size, not just the current roster
 const TILE_SCALE = 2; // mini sprites are 32x32 native; on-screen size within the tile
@@ -396,6 +397,12 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
             ))}
           </div>
         )}
+        {/* Scoped to the sprite area, not the whole tile — keeps falling
+            snow/leaves/etc. from drifting over the name/meter/pts text
+            below. Renders regardless of showing.hidden (the brief
+            adult->new-egg "gone" beat) so an equipped overlay doesn't
+            flicker off during that moment. */}
+        <TileOverlay overlayId={student.equippedOverlay} />
       </div>
       <div style={nameStyle}>{student.name}</div>
       <div style={meterTrackStyle} title={`${Math.round(fraction * POINTS_PER_GROWTH)}/${POINTS_PER_GROWTH} pts to next stage`}>

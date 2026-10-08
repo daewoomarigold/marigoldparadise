@@ -1,0 +1,48 @@
+/* Keyframes for TileOverlay.jsx's particle effects (see overlays.js for
+   the catalog). CSS-driven rather than the rAF-computed-inline-styles
+   pattern the rest of this app's animations use (coin rain, evolution
+   shake/flash, etc.) — those are short, one-shot, choreographed
+   sequences that need per-frame JS control; these are continuous
+   ambient loops that can run on up to 16 tiles at once indefinitely, so
+   letting the browser's compositor drive them (no React re-renders, no
+   JS running at all once started) matters a lot more here. Per-particle
+   randomization (position/size/duration/drift) is computed once in JS
+   and applied as inline style overrides — see TileOverlay.jsx. */
+
+@keyframes overlay-fall {
+  from {
+    transform: translateY(-15%) translateX(0);
+  }
+  to {
+    transform: translateY(115%) translateX(var(--overlay-drift, 0px));
+  }
+}
+
+@keyframes overlay-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(var(--overlay-drift, 6px), -8px);
+  }
+}
+
+.overlay-particle-fall {
+  position: absolute;
+  animation-name: overlay-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.overlay-particle-float {
+  position: absolute;
+  animation-name: overlay-float;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+
+.overlay-particle-static {
+  position: absolute;
+}

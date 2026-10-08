@@ -58,6 +58,8 @@ function rowToStudent(row) {
     nickname: row.nickname ?? null, // shown above the field tama instead of `name` when set — see IslandView.jsx's NameTag
     ownedFrameColors: row.owned_frame_colors ?? [], // owned frame color ids — see src/game/frameColors.js
     equippedFrameColor: row.equipped_frame_color ?? null, // colors the roster tile's border — see StudentGrid.jsx
+    ownedOverlays: row.owned_overlays ?? [], // owned overlay ids — see src/game/overlays.js
+    equippedOverlay: row.equipped_overlay ?? null, // particle effect animated over the roster tile — see TileOverlay.jsx
   };
 }
 
@@ -507,6 +509,35 @@ export function useClassroomStore(session) {
     }
   }
 
+  // Customization's second subcategory — see src/game/overlays.js. Same
+  // shape/reasoning as buyFrameColor above.
+  async function buyOverlay(student, overlayId, price) {
+    if (student.ownedOverlays.includes(overlayId)) return;
+    if (student.gotchiPts < price) return;
+    const nextOwned = [...student.ownedOverlays, overlayId];
+    const nextGotchiPts = student.gotchiPts - price;
+    patchStudent(setStudents, student.id, { ownedOverlays: nextOwned, gotchiPts: nextGotchiPts });
+    const { error: err } = await supabase
+      .from('students')
+      .update({ owned_overlays: nextOwned, gotchi_pts: nextGotchiPts })
+      .eq('id', student.id);
+    if (err) {
+      setError(err.message);
+      patchStudent(setStudents, student.id, { ownedOverlays: student.ownedOverlays, gotchiPts: student.gotchiPts });
+    }
+  }
+
+  // Same shape/reasoning as setEquippedFrameColor above.
+  async function setEquippedOverlay(studentId, overlayId) {
+    const prev = students.find((s) => s.id === studentId);
+    patchStudent(setStudents, studentId, { equippedOverlay: overlayId });
+    const { error: err } = await supabase.from('students').update({ equipped_overlay: overlayId }).eq('id', studentId);
+    if (err) {
+      setError(err.message);
+      if (prev) patchStudent(setStudents, studentId, { equippedOverlay: prev.equippedOverlay });
+    }
+  }
+
   // Per-class seating — the whole { deskId: studentId } object each time
   // (see SeatingMap.jsx; every arrange-mode change builds the full next
   // object from the current one).
@@ -580,6 +611,8 @@ export function useClassroomStore(session) {
     setNickname,
     buyFrameColor,
     setEquippedFrameColor,
+    buyOverlay,
+    setEquippedOverlay,
   };
 }
 

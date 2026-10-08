@@ -82,6 +82,10 @@ create table public.students (
   -- student's GROWING tama (StudentGrid.jsx), not the field.
   owned_frame_colors jsonb not null default '[]'::jsonb,
   equipped_frame_color text,
+  -- Customization's second subcategory — see src/game/overlays.js. Same
+  -- shape/reasoning as owned_frame_colors/equipped_frame_color above.
+  owned_overlays jsonb not null default '[]'::jsonb,
+  equipped_overlay text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
