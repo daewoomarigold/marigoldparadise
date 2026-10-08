@@ -397,12 +397,6 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
             ))}
           </div>
         )}
-        {/* Scoped to the sprite area, not the whole tile — keeps falling
-            snow/leaves/etc. from drifting over the name/meter/pts text
-            below. Renders regardless of showing.hidden (the brief
-            adult->new-egg "gone" beat) so an equipped overlay doesn't
-            flicker off during that moment. */}
-        <TileOverlay overlayId={student.equippedOverlay} height={32 * TILE_SCALE} />
       </div>
       <div style={nameStyle}>{student.name}</div>
       <div style={meterTrackStyle} title={`${Math.round(fraction * POINTS_PER_GROWTH)}/${POINTS_PER_GROWTH} pts to next stage`}>
@@ -418,6 +412,11 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
         <img src={COIN_URL} alt="" style={coinIconStyle} />
         {student.gotchiPts}
       </div>
+      {/* Last child, over everything — covers the WHOLE card (sprite +
+          name + meter + pts), not just the sprite area. tileStyle has
+          position:'relative' specifically so this inset:0 anchors to the
+          full tile. */}
+      <TileOverlay overlayId={student.equippedOverlay} />
     </div>
   );
 });
@@ -739,6 +738,7 @@ function EmptyTile() {
 }
 
 const tileStyle = {
+  position: 'relative', // so TileOverlay's inset:0 covers the whole card, not just whatever sub-div happened to be positioned
   aspectRatio: '1 / 1',
   backgroundColor: '#22223a', // fallback beneath the image/scrim (StudentTile) or plain background (EmptyTile)
   border: '1px solid #2e2e4e',

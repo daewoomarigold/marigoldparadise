@@ -743,8 +743,11 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor, o
               : undefined
           }
         />
-        <TileOverlay overlayId={overlayId} height={EDITOR_CHAR_SIZE} />
       </div>
+      {/* Sibling of dragFrameCharStyle, not nested inside it — covers the
+          WHOLE frame (dragFrameStyle's own bounds, bigger than the red
+          box) to match the real tile's treatment. */}
+      <TileOverlay overlayId={overlayId} />
     </div>
   );
 }
@@ -1063,9 +1066,11 @@ const dragFrameStyle = {
 
 // Offsets the tama composite (+ its accessory, drawn as part of the same
 // component — see TamaComposite) to sit centered within the bigger frame.
-// width/height match EDITOR_CHAR_SIZE (not just the padding offset) so
-// TileOverlay's own inset:0 has a sized, position:relative ancestor to
-// anchor against — same bounding box the red rectangle marks.
+// width/height match EDITOR_CHAR_SIZE so this exactly matches the same
+// bounding box the red rectangle marks (TamaComposite already sizes
+// itself the same, so this is mostly just documentation at this point —
+// TileOverlay lives one level up now, sized to the whole dragFrameStyle
+// container instead of just this one).
 const dragFrameCharStyle = {
   position: 'absolute',
   left: EDITOR_FRAME_PADDING,
