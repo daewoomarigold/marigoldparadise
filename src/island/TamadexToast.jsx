@@ -21,15 +21,18 @@
 // yet reached/collected isn't clickable — nothing to display.
 //
 // Gotchi Shop tab: its own secondary tab row — Accessories (see
-// ShopTab/ACCESSORIES in accessories.js) and Customization (see
-// FRAME_COLORS in frameColors.js — solid-color borders for the roster
-// tile showing a student's growing tama, StudentGrid.jsx's tileStyle;
-// more customization categories can join this one later). Buying spends
-// gotchiPts either way. Accessories go into the student's bag unequipped
-// (see useClassroomStore.js's buyAccessory) — equipping happens in My Bag,
-// since there's a position to choose. Frame colors have no position to
-// choose, so an owned one equips/unequips right in the shop instead (see
-// useClassroomStore.js's buyFrameColor/setEquippedFrameColor).
+// ShopTab/ACCESSORIES in accessories.js) and Customization. Customization
+// has a THIRD tab level of its own (CustomizationTab/CUSTOMIZATION_
+// CATEGORIES) — just "Frames" so far (FRAME_COLORS in frameColors.js:
+// solid-color borders for the roster tile showing a student's growing
+// tama, StudentGrid.jsx's tileStyle), with room for more subcategories
+// later (a background category, say) without restructuring. Buying
+// spends gotchiPts either way. Accessories go into the student's bag
+// unequipped (see useClassroomStore.js's buyAccessory) — equipping
+// happens in My Bag, since there's a position to choose. Frame colors
+// have no position to choose, so an owned one equips/unequips right in
+// Customization instead (see useClassroomStore.js's buyFrameColor/
+// setEquippedFrameColor).
 //
 // My Bag tab: a grid of owned accessories next to a drag-anywhere frame
 // showing the student's own field tama. On open the frame already shows
@@ -126,6 +129,27 @@ function ComingSoon({ label }) {
   return <div style={comingSoonStyle}>🚧 {label} — coming soon.</div>;
 }
 
+// A frame color's preview — a hollow ring rather than a solid square, so
+// it reads as "this becomes a BORDER around the tile" rather than a flat
+// fill (see StudentGrid.jsx's tileStyle, what this actually colors).
+// Thickness scales with size so it still reads clearly at the confirm
+// dialog's bigger preview, not just the shop grid's small cells.
+function FrameSwatch({ color, size = 32 }) {
+  const thickness = Math.round(size * 0.22);
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        boxSizing: 'border-box',
+        borderRadius: 6,
+        border: `${thickness}px solid ${color}`,
+        background: '#22223a', // matches the real tile's own background (StudentGrid.jsx's tileStyle)
+      }}
+    />
+  );
+}
+
 function TamadexTab({ student, onSelectDisplay }) {
   const earlyStages = allBabiesAndToddlers();
   const adults = allAdults();
@@ -203,20 +227,16 @@ const SHOP_CATEGORIES = [
 
 function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameColor }) {
   const [category, setCategory] = useState('accessories');
-  // The accessory/frame-color id awaiting a Yes/No confirmation, or null —
-  // a click on a buyable cell opens this instead of purchasing
-  // immediately. Two separate pieces of state (not one "pending purchase"
-  // slot) since they're different catalogs/confirm handlers — simplest
-  // given there's only two categories so far.
+  // The accessory id awaiting a Yes/No confirmation, or null — a click on
+  // a buyable cell opens this instead of purchasing immediately.
+  // CustomizationTab owns the equivalent state for its own items (frame
+  // colors, etc.) separately, since it's a self-contained sub-panel.
   const [confirmAccessoryId, setConfirmAccessoryId] = useState(null);
-  const [confirmColorId, setConfirmColorId] = useState(null);
   const owned = new Set(student.bag);
-  const ownedColors = new Set(student.ownedFrameColors);
   const confirmAccessory = confirmAccessoryId != null ? findAccessory(confirmAccessoryId) : null;
-  const confirmColor = confirmColorId != null ? findFrameColor(confirmColorId) : null;
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div>
       <div style={subTabRowStyle}>
         {SHOP_CATEGORIES.map((c) => (
           <button
@@ -252,9 +272,56 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
           })}
         </div>
       ) : (
-        // Frame colors: no My Bag step like accessories get — there's
-        // nothing to position for a solid border color, so an owned swatch
-        // equips/unequips (toggle) right here in the shop instead.
+        <CustomizationTab student={student} onBuyFrameColor={onBuyFrameColor} onSetEquippedFrameColor={onSetEquippedFrameColor} />
+      )}
+      {confirmAccessory && (
+        <BuyConfirmDialog
+          name={confirmAccessory.name}
+          price={ACCESSORY_PRICE}
+          balance={student.gotchiPts}
+          preview={<img src={spriteUrl(accessorySpriteFile(confirmAccessory.id))} alt="" style={{ ...itemIconStyle, width: 48, height: 48 }} />}
+          onConfirm={() => {
+            onBuyAccessory(confirmAccessory.id, ACCESSORY_PRICE);
+            setConfirmAccessoryId(null);
+          }}
+          onCancel={() => setConfirmAccessoryId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Customization's own sub-tab row, one level below Accessories/
+// Customization — just "Frames" for now (colored tile borders, see
+// frameColors.js), per the request that added this structure: "we can add
+// more subcategories later" (a background category, say). Self-contained:
+// owns its own confirm-dialog state rather than sharing ShopTab's, since
+// each subcategory here is its own little catalog/flow.
+const CUSTOMIZATION_CATEGORIES = [{ id: 'frames', label: 'Frames' }];
+
+function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor }) {
+  const [subCategory, setSubCategory] = useState('frames');
+  const [confirmColorId, setConfirmColorId] = useState(null);
+  const ownedColors = new Set(student.ownedFrameColors);
+  const confirmColor = confirmColorId != null ? findFrameColor(confirmColorId) : null;
+
+  return (
+    <div>
+      <div style={subTabRowStyle}>
+        {CUSTOMIZATION_CATEGORIES.map((sc) => (
+          <button
+            key={sc.id}
+            style={{ ...subTabBtnStyle, ...(subCategory === sc.id ? subTabBtnActiveStyle : null) }}
+            onClick={() => setSubCategory(sc.id)}
+          >
+            {sc.label}
+          </button>
+        ))}
+      </div>
+      {subCategory === 'frames' && (
+        // No My Bag step like accessories get — there's nothing to
+        // position for a solid border color, so an owned swatch
+        // equips/unequips (toggle) right here instead.
         <div style={gridStyle}>
           {FRAME_COLORS.map((c) => {
             const got = ownedColors.has(c.id);
@@ -274,32 +341,19 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
                 onClick={got ? () => onSetEquippedFrameColor(isEquipped ? null : c.id) : canAfford ? () => setConfirmColorId(c.id) : undefined}
               >
                 <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
-                <div style={{ ...colorSwatchStyle, background: c.color }} />
+                <FrameSwatch color={c.color} />
                 <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${FRAME_COLOR_PRICE}`}</div>
               </div>
             );
           })}
         </div>
       )}
-      {confirmAccessory && (
-        <BuyConfirmDialog
-          name={confirmAccessory.name}
-          price={ACCESSORY_PRICE}
-          balance={student.gotchiPts}
-          preview={<img src={spriteUrl(accessorySpriteFile(confirmAccessory.id))} alt="" style={{ ...itemIconStyle, width: 48, height: 48 }} />}
-          onConfirm={() => {
-            onBuyAccessory(confirmAccessory.id, ACCESSORY_PRICE);
-            setConfirmAccessoryId(null);
-          }}
-          onCancel={() => setConfirmAccessoryId(null)}
-        />
-      )}
       {confirmColor && (
         <BuyConfirmDialog
           name={confirmColor.name}
           price={FRAME_COLOR_PRICE}
           balance={student.gotchiPts}
-          preview={<div style={{ ...colorSwatchStyle, width: 48, height: 48, background: confirmColor.color }} />}
+          preview={<FrameSwatch color={confirmColor.color} size={48} />}
           onConfirm={() => {
             onBuyFrameColor(confirmColor.id, FRAME_COLOR_PRICE);
             setConfirmColorId(null);
@@ -311,12 +365,13 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
   );
 }
 
-// A small Yes/No confirmation overlaid on top of the shop grid — position:
-// absolute against ShopTab's own position:relative wrapper, so it covers
-// just the shop's content area rather than the whole toast. `preview` is
-// whatever image/swatch represents the item — different catalogs render
-// their own (an accessory sprite vs. a plain color square), this dialog
-// doesn't need to know which.
+// A small Yes/No confirmation — fixed to the viewport, centered over
+// everything (see confirmBackdropStyle), shared by both ShopTab and
+// CustomizationTab (each owns its own confirm-id state and renders this
+// with its own catalog's item). `preview` is whatever image/swatch
+// represents the item — different catalogs render their own (an
+// accessory sprite vs. a FrameSwatch), this dialog doesn't need to know
+// which.
 function BuyConfirmDialog({ name, price, balance, preview, onConfirm, onCancel }) {
   return (
     <div style={confirmBackdropStyle} onClick={onCancel}>
@@ -764,13 +819,6 @@ const itemIconStyle = {
   imageRendering: 'pixelated',
 };
 
-const colorSwatchStyle = {
-  width: 32,
-  height: 32,
-  borderRadius: 6,
-  border: '1px solid #2e2e4e',
-};
-
 const priceStyle = {
   fontSize: 8,
   color: '#ffe066',
@@ -862,18 +910,24 @@ const dragFrameBoundsStyle = {
   boxSizing: 'border-box',
 };
 
-// Covers ShopTab's own content area (its position:relative wrapper), not
-// the whole toast — a click outside the dialog card cancels, same pattern
-// TamadexToast's own outer backdrop uses for its close button.
+// Fixed to the viewport (not absolute against ShopTab's own
+// position:relative wrapper, which this used to be) — ShopTab's wrapper is
+// only as tall as its OWN content, which can be shorter than the toast's
+// full visible/scrollable area, so centering within just that box could
+// clip the dialog against contentStyle's overflow:auto (the bug Taylor
+// screenshotted: the dialog's top, including the preview image, cut off
+// by the scroll container). Same fixed/centered pattern TamadexToast's own
+// outer backdrop uses, just a higher zIndex so it sits above the toast
+// itself — a click outside the dialog card cancels, same as that one too.
 const confirmBackdropStyle = {
-  position: 'absolute',
+  position: 'fixed',
   inset: 0,
   background: 'rgba(10, 4, 20, 0.85)',
   backdropFilter: 'blur(2px)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  borderRadius: 8,
+  zIndex: 300,
 };
 
 const confirmCardStyle = {
