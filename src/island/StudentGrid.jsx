@@ -97,8 +97,7 @@ import { resolveAnimState, spriteUrl } from '../game/spriteData.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { playAddPoint } from '../sound.js';
 import { findFrameColor } from '../game/frameColors.js';
-import { tileBgStyle } from './tileAppearance.js';
-import TileOverlay from './TileOverlay.jsx';
+import { FRAME_FALLBACK_COLOR, tileBgStyleFor } from './tileAppearance.js';
 
 const GRID_SIZE = 16; // 4x4 — matches the real max class size, not just the current roster
 const TILE_SCALE = 2; // mini sprites are 32x32 native; on-screen size within the tile
@@ -346,21 +345,45 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
   const flashMs = evo?.phase === 'flashIn' ? EVO_FLASH_IN_MS : evo?.phase === 'flashOut' ? EVO_FLASH_OUT_MS : 0;
 
   // Gotchi Shop's "Customization" category (see frameColors.js) — a
-  // purely cosmetic border override on this tile, the growing tama's own
-  // "frame." frameColorStyle is spread AFTER tileStyle/tileBgStyle below
-  // so it can override tileStyle's default border.
+  // purely cosmetic ring around this tile, the growing tama's own
+  // "frame." Drawn as `outline` (with a negative outlineOffset so it sits
+  // right where the default 1px border is, instead of adding to it), NOT
+  // `border` — outline is paint-only and never participates in the box
+  // model, so equipping a frame color can't change tileStyle's own
+  // content-box size. It used to be a `border` override, which DID: with
+  // tileStyle's boxSizing:'border-box', a 3px frame border vs. the default
+  // 1px ate 4px of vertical space that this layout's name/sprite/meter
+  // stack doesn't have to spare, intermittently clipping the meter bar
+  // (overflow:hidden) for framed tiles only — see the bug report that
+  // caught this ("progress bars look different... has to do with when
+  // frames are applied").
   const equippedColor = student.equippedFrameColor ? findFrameColor(student.equippedFrameColor) : null;
   const frameColorStyle = equippedColor
-    ? { border: `3px solid ${equippedColor.color}`, boxShadow: `0 0 6px ${equippedColor.color}` }
+    ? { outline: `3px solid ${equippedColor.color}`, outlineOffset: -3, boxShadow: `0 0 6px ${equippedColor.color}` }
     : null;
 
   return (
     <div
       role="button"
-      style={{ ...tileStyle, ...tileBgStyle, ...frameColorStyle, cursor: 'pointer' }}
+      style={{ ...tileStyle, ...tileBgStyleFor(student.equippedBackground), ...frameColorStyle, cursor: 'pointer' }}
       onClick={() => onSelectStudent(student)}
     >
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 32 * TILE_SCALE }}>
+      <div style={topBarStyle}>
+        <div style={nameStyle}>{student.name}</div>
+        <div style={ptsStyle}>
+          <img src={COIN_URL} alt="" style={coinIconStyle} />
+          {student.gotchiPts}
+        </div>
+      </div>
+      {/* marginTop:'15%' pushes the tama down from the top bar — a
+          percentage, not a fixed px, so it scales with the tile (percentage
+          margins resolve against the containing block's WIDTH per the CSS
+          spec, which equals this tile's height too since tileStyle is a
+          square — aspectRatio: '1 / 1'). Started at 30% (per the original
+          request), but that pushed the sprite + meter bar below it past
+          the tile's bottom edge — tileStyle's overflow:hidden was clipping
+          the meter out of view entirely. Dialed back down to 15%. */}
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 32 * TILE_SCALE, marginTop: '15%' }}>
         {!showing.hidden && (
           <div style={{ position: 'relative', transform: `translateX(${(showing.shakeX || 0) + (showing.walkX || 0)}px)` }}>
             {/* shakeX and walkX are both driven per-frame via rAF (see runEvolution/runNewCycleSequence), so no CSS transition here — it would just add lag on top of already-smooth manual animation. */}
@@ -398,7 +421,6 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
           </div>
         )}
       </div>
-      <div style={nameStyle}>{student.name}</div>
       <div style={meterTrackStyle} title={`${Math.round(fraction * POINTS_PER_GROWTH)}/${POINTS_PER_GROWTH} pts to next stage`}>
         <div
           style={{
@@ -408,15 +430,6 @@ const StudentTile = memo(function StudentTile({ student, onSelectStudent }) {
           }}
         />
       </div>
-      <div style={ptsStyle}>
-        <img src={COIN_URL} alt="" style={coinIconStyle} />
-        {student.gotchiPts}
-      </div>
-      {/* Last child, over everything — covers the WHOLE card (sprite +
-          name + meter + pts), not just the sprite area. tileStyle has
-          position:'relative' specifically so this inset:0 anchors to the
-          full tile. */}
-      <TileOverlay overlayId={student.equippedOverlay} />
     </div>
   );
 });
@@ -738,15 +751,23 @@ function EmptyTile() {
 }
 
 const tileStyle = {
-  position: 'relative', // so TileOverlay's inset:0 covers the whole card, not just whatever sub-div happened to be positioned
+  // Not used by anything currently rendered here — kept because it's
+  // exactly what TileOverlay.jsx's inset:0 needs to cover the whole card
+  // again if the Overlays Customization category (disabled/removed from
+  // the shop for now, per request — see TamadexToast.jsx) comes back.
+  position: 'relative',
   aspectRatio: '1 / 1',
-  backgroundColor: '#22223a', // fallback beneath the image/scrim (StudentTile) or plain background (EmptyTile)
+  backgroundColor: FRAME_FALLBACK_COLOR, // fallback beneath the image/scrim (StudentTile) or plain background (EmptyTile) — see tileAppearance.js
   border: '1px solid #2e2e4e',
   borderRadius: 6,
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
-  justifyContent: 'center',
+  // flex-start, not center — name/pts anchor to the very top (topBarStyle)
+  // and the sprite is pushed down from there via its own marginTop, not
+  // centered as a group with everything else (see the request that moved
+  // name/pts to the top and shifted the tama down).
+  justifyContent: 'flex-start',
   gap: 4,
   padding: 6,
   boxSizing: 'border-box',
@@ -754,14 +775,32 @@ const tileStyle = {
   fontFamily: 'ui-monospace, monospace',
 };
 
+// Name (left) + pts (right), anchored to the very top of the tile — see
+// tileStyle's justifyContent:'flex-start' and the sprite wrapper's own
+// marginTop below it.
+const topBarStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  width: '100%',
+  gap: 4,
+};
+
 const nameStyle = {
   fontSize: 10,
   color: '#e0e0f0',
-  textAlign: 'center',
+  textAlign: 'left',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
-  maxWidth: '100%',
+  // flex:1 (not maxWidth:'100%') + minWidth:0 — this now shares
+  // topBarStyle's row with ptsStyle instead of being the row's only
+  // child, so it needs to shrink to make room for pts rather than
+  // claiming the full row width itself (minWidth:0 is what lets a flex
+  // item's text-overflow ellipsis actually kick in instead of just
+  // overflowing the row).
+  flex: 1,
+  minWidth: 0,
   textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
 };
 
@@ -792,6 +831,7 @@ const ptsStyle = {
   display: 'flex',
   alignItems: 'center',
   gap: 3,
+  flexShrink: 0, // holds its own width in topBarStyle's row regardless of how much nameStyle gets squeezed
 };
 
 const coinIconStyle = {

@@ -25,49 +25,57 @@
 // itself (CustomizationTab) has two catalogs stacked on one page, not a
 // further tab switch between them: "Frames" (FRAME_COLORS in
 // frameColors.js — solid-color borders for the roster tile showing a
-// student's growing tama, StudentGrid.jsx's tileStyle) and "Overlays"
-// (OVERLAYS in overlays.js — small looping particle effects, e.g. falling
-// snow, animated over that same tile via TileOverlay.jsx; there's no
-// sprite art for these at all, so they're drawn procedurally from emoji +
-// CSS, not image files). Buying spends gotchiPts either way. Accessories
-// go into the student's bag unequipped (see useClassroomStore.js's
-// buyAccessory) — equipping happens in My Bag, since there's a position
-// to choose. Frame colors/overlays have no position to choose, so an
-// owned one equips/unequips right in Customization instead (see
-// useClassroomStore.js's buyFrameColor/
-// setEquippedFrameColor and buyOverlay/setEquippedOverlay).
+// student's growing tama, StudentGrid.jsx's tileStyle) and "Backgrounds"
+// (BACKGROUNDS in backgrounds.js — full scene images that REPLACE the
+// tile's default grass art outright, grouped into its own category
+// subheadings since it's a much bigger catalog than Frames). Buying
+// spends gotchiPts either way. Accessories go into the student's bag
+// unequipped (see useClassroomStore.js's buyAccessory) — equipping
+// happens in My Bag, since there's a position to choose. Frame colors/
+// backgrounds have no position to choose, so an owned one equips/
+// unequips right in Customization instead (see useClassroomStore.js's
+// buyFrameColor/setEquippedFrameColor and buyBackground/
+// setEquippedBackground).
+//
+// (There used to be a third Customization subcategory here, "Overlays" —
+// small looping effects animated over the tile via TileOverlay.jsx, see
+// overlays.js. Disabled/removed from this UI for now per request — the
+// catalog/component/CSS/sprite assets and the student row's own
+// owned_overlays/equipped_overlay columns are all still intact, just
+// unwired, so turning it back on later is a quick re-wire rather than a
+// rebuild. Search this file's git history for `onBuyOverlay` to find
+// everything that touched it.)
 //
 // My Bag tab: a grid of owned accessories, then owned frame colors and
-// overlays ("Customizations" — see frameColors.js/overlays.js) below it,
-// all next to a single drag-anywhere frame (DragFrame) showing the
-// student's own field tama. On open the frame already shows whatever's
-// currently equipped (an accessory AND a frame color AND an overlay,
-// independently — none of the three are mutually exclusive), so the
-// student's current look is visible straight away without tapping
+// backgrounds ("Customizations" — see frameColors.js/backgrounds.js)
+// below it, all next to a single drag-anywhere frame (DragFrame) showing
+// the student's own field tama. On open the frame already shows
+// whatever's currently equipped (an accessory AND a frame color AND a
+// background, independently — none of the three are mutually exclusive),
+// so the student's current look is visible straight away without tapping
 // anything. Pick an accessory to preview it in the frame instead, with it
 // overlaid (see spriteCompositor.jsx's TamaComposite `accessory` prop) —
 // drag it where you want, then "Equip here" saves that exact position and
 // equips it (useClassroomStore.js's setEquippedAccessory), which is what
-// actually makes it show up on the island field. Frame colors/overlays
-// have no position to choose, so tapping an owned one just equips/
-// unequips it immediately: a frame color draws as a border AROUND the
-// frame's red bounding box (see DragFrame's `frameColor` prop) — the same
-// treatment StudentGrid.jsx's real tile gets — and an overlay plays right
-// over the preview tama (DragFrame's `overlayId` prop, same TileOverlay.jsx
-// component the real tile uses). Only one of each (accessory, frame
-// color, overlay) equipped at a time, by design — simpler data model/
-// rendering, easy to revisit later if multiple-at-once turns out to be
-// wanted.
+// actually makes it show up on the island field. Frame colors/
+// backgrounds have no position to choose, so tapping an owned one just
+// equips/unequips it immediately: a frame color draws as a border AROUND
+// the frame's red bounding box (see DragFrame's `frameColor` prop) — the
+// same treatment StudentGrid.jsx's real tile gets — and a background
+// replaces the frame's own backdrop image (DragFrame's `backgroundId`
+// prop, same tileBgStyleFor the real tile uses). Only one of each
+// (accessory, frame color, background) equipped at a time, by design —
+// simpler data model/rendering, easy to revisit later if multiple-at-once
+// turns out to be wanted.
 
 import { useRef, useState } from 'react';
 import { allAdults, allBabiesAndToddlers, findTamaName, resolveDisplayTama, visitedEarlyStageIds } from '../game/growth.js';
 import { ACCESSORIES, ACCESSORY_PRICE, accessorySpriteFile, findAccessory } from '../game/accessories.js';
 import { FRAME_COLORS, FRAME_COLOR_PRICE, findFrameColor } from '../game/frameColors.js';
-import { OVERLAYS, OVERLAY_PRICE, findOverlay } from '../game/overlays.js';
+import { BACKGROUNDS, BACKGROUND_CATEGORIES, BACKGROUND_PRICE, backgroundImageUrl, findBackground } from '../game/backgrounds.js';
 import { TamaComposite } from '../game/spriteCompositor.jsx';
 import { spriteUrl } from '../game/spriteData.js';
-import TileOverlay from './TileOverlay.jsx';
-import { tileBgStyle } from './tileAppearance.js';
+import { FRAME_FALLBACK_COLOR, tileBgStyleFor } from './tileAppearance.js';
 
 const CELL_SCALE = 1.5; // mini sprites are 32x32 native
 // My Bag's positioning frame — base sprites are 64x64 native. Was 4 (a
@@ -100,8 +108,8 @@ export default function TamadexToast({
   onSetNickname,
   onBuyFrameColor,
   onSetEquippedFrameColor,
-  onBuyOverlay,
-  onSetEquippedOverlay,
+  onBuyBackground,
+  onSetEquippedBackground,
   onClose,
 }) {
   const [activeTab, setActiveTab] = useState('tamadex');
@@ -136,8 +144,8 @@ export default function TamadexToast({
                 onBuyAccessory={onBuyAccessory}
                 onBuyFrameColor={onBuyFrameColor}
                 onSetEquippedFrameColor={onSetEquippedFrameColor}
-                onBuyOverlay={onBuyOverlay}
-                onSetEquippedOverlay={onSetEquippedOverlay}
+                onBuyBackground={onBuyBackground}
+                onSetEquippedBackground={onSetEquippedBackground}
               />
             )}
             {activeTab === 'bag' && (
@@ -146,7 +154,7 @@ export default function TamadexToast({
                 onSetEquippedAccessory={onSetEquippedAccessory}
                 onSetNickname={onSetNickname}
                 onSetEquippedFrameColor={onSetEquippedFrameColor}
-                onSetEquippedOverlay={onSetEquippedOverlay}
+                onSetEquippedBackground={onSetEquippedBackground}
               />
             )}
           </div>
@@ -175,8 +183,22 @@ function FrameSwatch({ color, size = 32 }) {
         boxSizing: 'border-box',
         borderRadius: 6,
         border: `${thickness}px solid ${color}`,
-        background: '#22223a', // matches the real tile's own background (StudentGrid.jsx's tileStyle)
+        background: FRAME_FALLBACK_COLOR, // matches the real tile's own background fallback (StudentGrid.jsx's tileStyle) — see tileAppearance.js
       }}
+    />
+  );
+}
+
+// A background's preview — a small cropped thumbnail of the actual scene
+// (unlike FrameSwatch, which is a plain color, these ARE real art — see
+// backgrounds.js), object-fit: cover so it fills a square cell/preview
+// regardless of size.
+function BackgroundSwatch({ id, size = 32 }) {
+  return (
+    <img
+      src={backgroundImageUrl(id)}
+      alt=""
+      style={{ width: size, height: size, borderRadius: 6, objectFit: 'cover', imageRendering: 'pixelated' }}
     />
   );
 }
@@ -256,7 +278,14 @@ const SHOP_CATEGORIES = [
   { id: 'customization', label: 'Customization' },
 ];
 
-function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameColor, onBuyOverlay, onSetEquippedOverlay }) {
+function ShopTab({
+  student,
+  onBuyAccessory,
+  onBuyFrameColor,
+  onSetEquippedFrameColor,
+  onBuyBackground,
+  onSetEquippedBackground,
+}) {
   const [category, setCategory] = useState('accessories');
   // The accessory id awaiting a Yes/No confirmation, or null — a click on
   // a buyable cell opens this instead of purchasing immediately.
@@ -307,8 +336,8 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
           student={student}
           onBuyFrameColor={onBuyFrameColor}
           onSetEquippedFrameColor={onSetEquippedFrameColor}
-          onBuyOverlay={onBuyOverlay}
-          onSetEquippedOverlay={onSetEquippedOverlay}
+          onBuyBackground={onBuyBackground}
+          onSetEquippedBackground={onSetEquippedBackground}
         />
       )}
       {confirmAccessory && (
@@ -328,25 +357,29 @@ function ShopTab({ student, onBuyAccessory, onBuyFrameColor, onSetEquippedFrameC
   );
 }
 
-// Customization's own sub-tab row, one level below Accessories/
-// Customization — just "Frames" for now (colored tile borders, see
-// frameColors.js), per the request that added this structure: "we can add
-// more subcategories later" (a background category, say). Self-contained:
-// owns its own confirm-dialog state rather than sharing ShopTab's, since
-// each subcategory here is its own little catalog/flow.
-function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor, onBuyOverlay, onSetEquippedOverlay }) {
+// Customization's two catalogs — "Frames" (colored tile borders, see
+// frameColors.js) and "Backgrounds" (full scene images, see
+// backgrounds.js) — stacked on one page rather than a further sub-tab
+// switch between them, per the request that added this structure.
+// Self-contained: owns its own confirm-dialog state rather than sharing
+// ShopTab's, since each subcategory here is its own little catalog/flow.
+// (A third catalog, "Overlays," used to sit between these two — disabled/
+// removed from this UI for now per request. See this file's header
+// comment.)
+function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor, onBuyBackground, onSetEquippedBackground }) {
   const [confirmColorId, setConfirmColorId] = useState(null);
-  const [confirmOverlayId, setConfirmOverlayId] = useState(null);
+  const [confirmBackgroundId, setConfirmBackgroundId] = useState(null);
   const ownedColors = new Set(student.ownedFrameColors);
-  const ownedOverlays = new Set(student.ownedOverlays);
+  const ownedBackgrounds = new Set(student.ownedBackgrounds);
   const confirmColor = confirmColorId != null ? findFrameColor(confirmColorId) : null;
-  const confirmOverlay = confirmOverlayId != null ? findOverlay(confirmOverlayId) : null;
+  const confirmBackground = confirmBackgroundId != null ? findBackground(confirmBackgroundId) : null;
 
   return (
     <div>
-      {/* Frames and Overlays both on one page (no sub-tab switch between
-          them, per request) — same stacked-sections layout My Bag's own
-          "Customizations" area already uses for the same two catalogs. */}
+      {/* Frames and Backgrounds both on one page (no sub-tab switch
+          between them, per request) — same stacked-sections layout My
+          Bag's own "Customizations" area already uses for the same two
+          catalogs. */}
       <div style={sectionLabelStyle}>Frames</div>
       {/* No My Bag step like accessories get — there's nothing to
           position for a solid border color, so an owned swatch
@@ -376,35 +409,43 @@ function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor, o
           );
         })}
       </div>
-      <div style={sectionLabelStyle}>Overlays</div>
-      {/* Same no-My-Bag-step reasoning as frames — nothing to position
-          for a looping particle effect, so an owned one equips/unequips
-          right here too. */}
-      <div style={gridStyle}>
-        {OVERLAYS.map((o) => {
-          const got = ownedOverlays.has(o.id);
-          const isEquipped = student.equippedOverlay === o.id;
-          const canAfford = student.gotchiPts >= OVERLAY_PRICE;
-          return (
-            <div
-              key={o.id}
-              role={got || canAfford ? 'button' : undefined}
-              style={{
-                ...cellStyle,
-                ...(isEquipped ? cellSelectedStyle : null),
-                cursor: got || canAfford ? 'pointer' : 'default',
-                opacity: !got && !canAfford ? 0.5 : 1,
-              }}
-              title={got ? (isEquipped ? `${o.name} (equipped)` : `${o.name} (owned — tap to equip)`) : `${o.name} — ★${OVERLAY_PRICE}`}
-              onClick={got ? () => onSetEquippedOverlay(isEquipped ? null : o.id) : canAfford ? () => setConfirmOverlayId(o.id) : undefined}
-            >
-              <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
-              <span style={overlayEmojiStyle}>{o.emoji}</span>
-              <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${OVERLAY_PRICE}`}</div>
-            </div>
-          );
-        })}
-      </div>
+      {/* Customization's second subcategory — see backgrounds.js. Grouped
+          into its own mini-subheadings (spooky/rooms/outdoor) rather than
+          one flat 41-item grid like Frames gets — that's a small catalog,
+          this one isn't. Same no-My-Bag-step reasoning as frames: nothing
+          to position for a full-tile background image, so an owned one
+          equips/unequips right here too. */}
+      <div style={sectionLabelStyle}>Backgrounds</div>
+      {BACKGROUND_CATEGORIES.map((cat) => (
+        <div key={cat.id}>
+          <div style={subSectionLabelStyle}>{cat.label}</div>
+          <div style={{ ...backgroundGridStyle, marginBottom: 16 }}>
+            {BACKGROUNDS.filter((b) => b.category === cat.id).map((b) => {
+              const got = ownedBackgrounds.has(b.id);
+              const isEquipped = student.equippedBackground === b.id;
+              const canAfford = student.gotchiPts >= BACKGROUND_PRICE;
+              return (
+                <div
+                  key={b.id}
+                  role={got || canAfford ? 'button' : undefined}
+                  style={{
+                    ...cellStyle,
+                    ...(isEquipped ? cellSelectedStyle : null),
+                    cursor: got || canAfford ? 'pointer' : 'default',
+                    opacity: !got && !canAfford ? 0.5 : 1,
+                  }}
+                  title={got ? (isEquipped ? `${b.name} (equipped)` : `${b.name} (owned — tap to equip)`) : `${b.name} — ★${BACKGROUND_PRICE}`}
+                  onClick={got ? () => onSetEquippedBackground(isEquipped ? null : b.id) : canAfford ? () => setConfirmBackgroundId(b.id) : undefined}
+                >
+                  <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
+                  <BackgroundSwatch id={b.id} size={96} />
+                  <div style={priceStyle}>{got ? (isEquipped ? 'Equipped' : 'Owned') : `★${BACKGROUND_PRICE}`}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
       {confirmColor && (
         <BuyConfirmDialog
           name={confirmColor.name}
@@ -418,17 +459,17 @@ function CustomizationTab({ student, onBuyFrameColor, onSetEquippedFrameColor, o
           onCancel={() => setConfirmColorId(null)}
         />
       )}
-      {confirmOverlay && (
+      {confirmBackground && (
         <BuyConfirmDialog
-          name={confirmOverlay.name}
-          price={OVERLAY_PRICE}
+          name={confirmBackground.name}
+          price={BACKGROUND_PRICE}
           balance={student.gotchiPts}
-          preview={<span style={{ ...overlayEmojiStyle, fontSize: 48 }}>{confirmOverlay.emoji}</span>}
+          preview={<BackgroundSwatch id={confirmBackground.id} size={96} />}
           onConfirm={() => {
-            onBuyOverlay(confirmOverlay.id, OVERLAY_PRICE);
-            setConfirmOverlayId(null);
+            onBuyBackground(confirmBackground.id, BACKGROUND_PRICE);
+            setConfirmBackgroundId(null);
           }}
-          onCancel={() => setConfirmOverlayId(null)}
+          onCancel={() => setConfirmBackgroundId(null)}
         />
       )}
     </div>
@@ -469,7 +510,7 @@ function BuyConfirmDialog({ name, price, balance, preview, onConfirm, onCancel }
   );
 }
 
-function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippedFrameColor, onSetEquippedOverlay }) {
+function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippedFrameColor, onSetEquippedBackground }) {
   const equipped = student.equippedAccessory;
   // Nothing pre-selected on open (no item highlighted in the grid, no
   // Equip button), but the frame still shows what's equipped right now,
@@ -491,7 +532,7 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
     setPos(equipped?.id === id ? { x: equipped.x, y: equipped.y } : { x: 0, y: 0 });
   }
 
-  // Frame colors/overlays have no position to fine-tune, so there's no
+  // Frame colors/backgrounds have no position to fine-tune, so there's no
   // equivalent "pick then drag then Equip here" flow — tapping an owned
   // one just toggles it equipped immediately (same as Customization's own
   // shop panel), and the frame preview below updates to match right away.
@@ -499,8 +540,8 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
     onSetEquippedFrameColor(student.equippedFrameColor === id ? null : id);
   }
 
-  function toggleOverlay(id) {
-    onSetEquippedOverlay(student.equippedOverlay === id ? null : id);
+  function toggleBackground(id) {
+    onSetEquippedBackground(student.equippedBackground === id ? null : id);
   }
 
   const { stage, tamaId } = resolveDisplayTama(student);
@@ -559,25 +600,25 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
             })}
           </div>
         )}
-        <div style={sectionLabelStyle}>Customizations — Overlays</div>
-        {student.ownedOverlays.length === 0 ? (
-          <ComingSoon label="No overlays yet — visit the Gotchi Shop" />
+        <div style={sectionLabelStyle}>Customizations — Backgrounds</div>
+        {student.ownedBackgrounds.length === 0 ? (
+          <ComingSoon label="No backgrounds yet — visit the Gotchi Shop" />
         ) : (
           <div style={bagGridStyle}>
-            {student.ownedOverlays.map((id) => {
-              const overlay = findOverlay(id);
-              if (!overlay) return null;
-              const isEquipped = student.equippedOverlay === id;
+            {student.ownedBackgrounds.map((id) => {
+              const bg = findBackground(id);
+              if (!bg) return null;
+              const isEquipped = student.equippedBackground === id;
               return (
                 <div
                   key={id}
                   role="button"
                   style={{ ...cellStyle, ...(isEquipped ? cellSelectedStyle : null), cursor: 'pointer' }}
-                  title={isEquipped ? `${overlay.name} (equipped — tap to unequip)` : overlay.name}
-                  onClick={() => toggleOverlay(id)}
+                  title={isEquipped ? `${bg.name} (equipped — tap to unequip)` : bg.name}
+                  onClick={() => toggleBackground(id)}
                 >
                   <div style={numStyle}>{isEquipped && <span style={starStyle}>★</span>}</div>
-                  <span style={overlayEmojiStyle}>{overlay.emoji}</span>
+                  <BackgroundSwatch id={bg.id} size={64} />
                 </div>
               );
             })}
@@ -606,7 +647,7 @@ function MyBagTab({ student, onSetEquippedAccessory, onSetNickname, onSetEquippe
           pos={previewPos}
           onPosChange={moveInFrame}
           frameColor={equippedColor?.color}
-          overlayId={student.equippedOverlay}
+          backgroundId={student.equippedBackground}
         />
         <div style={editorActionsStyle}>
           {selected && (
@@ -677,7 +718,7 @@ function NicknameEditor({ student, onSetNickname }) {
 // that bigger frame; a red rectangle drawn at the same offset marks
 // exactly where the tama's own bounding box is, so it's clear how far
 // "past the edge" any given drag actually is.
-function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor, overlayId }) {
+function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor, backgroundId }) {
   const dragRef = useRef(null); // {startClientX, startClientY, startPosX, startPosY} | null
   const isEgg = stage === 'egg';
 
@@ -696,14 +737,20 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor, o
   }
 
   // Previewing a frame color (see frameColors.js) puts it around the
-  // OUTSIDE of the red bounding box — dragFrameStyle's own border, the
+  // OUTSIDE of the red bounding box — dragFrameStyle's own outline, the
   // same treatment StudentGrid.jsx's real tile gets — rather than
   // replacing the red rectangle itself, which stays put marking the
   // tama's actual bounds regardless of what frame color is selected.
-  const frameColorStyle = frameColor ? { border: `3px solid ${frameColor}`, boxShadow: `0 0 6px ${frameColor}` } : null;
+  // `outline` (with a negative outlineOffset matching its own width), not
+  // `border` — see StudentGrid.jsx's equivalent for why: a border override
+  // changes dragFrameStyle's own content-box size (border-box sizing),
+  // which this frame's EDITOR_FRAME_PADDING math assumes is constant
+  // regardless of what's equipped; outline is paint-only and never
+  // affects the box model, so it can't throw that off.
+  const frameColorStyle = frameColor ? { outline: `3px solid ${frameColor}`, outlineOffset: -3, boxShadow: `0 0 6px ${frameColor}` } : null;
 
   return (
-    <div style={{ ...dragFrameStyle, ...frameColorStyle }}>
+    <div style={{ ...dragFrameStyle, ...tileBgStyleFor(backgroundId), ...frameColorStyle }}>
       <div style={dragFrameBoundsStyle} />
       <div style={dragFrameCharStyle}>
         <TamaComposite
@@ -728,10 +775,6 @@ function DragFrame({ stage, tamaId, accessoryId, pos, onPosChange, frameColor, o
           }
         />
       </div>
-      {/* Sibling of dragFrameCharStyle, not nested inside it — covers the
-          WHOLE frame (dragFrameStyle's own bounds, bigger than the red
-          box) to match the real tile's treatment. */}
-      <TileOverlay overlayId={overlayId} />
     </div>
   );
 }
@@ -858,6 +901,17 @@ const sectionLabelStyle = {
   marginBottom: 6,
 };
 
+// One level below sectionLabelStyle — Backgrounds' own category
+// subheadings (spooky/rooms/outdoor, see backgrounds.js's
+// BACKGROUND_CATEGORIES) within the single "Backgrounds" section.
+const subSectionLabelStyle = {
+  fontSize: 9,
+  color: '#5a5a84',
+  letterSpacing: 0.3,
+  marginBottom: 6,
+  marginTop: 2,
+};
+
 const closeBtnStyle = {
   background: 'none',
   border: '1px solid #2e2e4e',
@@ -871,6 +925,17 @@ const closeBtnStyle = {
 const gridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(8, 1fr)',
+  gap: 8,
+};
+
+// Backgrounds get their own, wider grid — fewer, bigger columns than
+// gridStyle's 8 (sized for a small accessory icon/frame ring/overlay
+// emoji) so each swatch is actually big enough to recognize the scene,
+// per the request that added this ("hard to see" at the old 32px size —
+// see BackgroundSwatch's size prop at each call site).
+const backgroundGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(4, 1fr)',
   gap: 8,
 };
 
@@ -969,10 +1034,6 @@ const itemIconStyle = {
   imageRendering: 'pixelated',
 };
 
-const overlayEmojiStyle = {
-  fontSize: 28,
-  lineHeight: 1,
-};
 
 const priceStyle = {
   fontSize: 8,
@@ -1026,23 +1087,21 @@ const secondaryBtnStyle = {
   fontSize: 11,
 };
 
-// The real tile's own grass-and-scrim background (tileBgStyle, shared
-// with StudentGrid.jsx via tileAppearance.js) instead of a generic
-// transparency checkerboard — reads as an actual preview of the roster
-// tile rather than an abstract
-// editor canvas. A real background customization feature (multiple
-// choices, like frame colors) is a future follow-up; for now this is
-// just the one real background every tile already uses. Sized to
-// EDITOR_FRAME_SIZE (bigger than the tama's own EDITOR_CHAR_SIZE bounding
-// box) — see DragFrame's own comment for why. box-sizing: border-box so
-// toggling a frame color's thicker border (see DragFrame's frameColor
-// prop) doesn't change this element's overall footprint.
+// Layout/border shell for the drag frame — the actual background image
+// (the real tile's default grass art, or the student's equipped
+// Customization background — see tileAppearance.js's tileBgStyleFor) is
+// spread in by DragFrame itself, not here, since it depends on the
+// backgroundId prop. Sized to EDITOR_FRAME_SIZE (bigger than the tama's
+// own EDITOR_CHAR_SIZE bounding box) — see DragFrame's own comment for
+// why. box-sizing: border-box so toggling a frame color's thicker border
+// (see DragFrame's frameColor prop) doesn't change this element's overall
+// footprint.
 const dragFrameStyle = {
   position: 'relative',
   width: EDITOR_FRAME_SIZE,
   height: EDITOR_FRAME_SIZE,
   boxSizing: 'border-box',
-  ...tileBgStyle,
+  backgroundColor: FRAME_FALLBACK_COLOR, // shows through any transparency in the background image spread in by DragFrame — see tileAppearance.js
   border: '1px solid #2e2e4e',
   borderRadius: 6,
   overflow: 'hidden',
@@ -1052,9 +1111,7 @@ const dragFrameStyle = {
 // component — see TamaComposite) to sit centered within the bigger frame.
 // width/height match EDITOR_CHAR_SIZE so this exactly matches the same
 // bounding box the red rectangle marks (TamaComposite already sizes
-// itself the same, so this is mostly just documentation at this point —
-// TileOverlay lives one level up now, sized to the whole dragFrameStyle
-// container instead of just this one).
+// itself the same, so this is mostly just documentation at this point).
 const dragFrameCharStyle = {
   position: 'absolute',
   left: EDITOR_FRAME_PADDING,
