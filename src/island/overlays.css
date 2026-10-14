@@ -1,13 +1,14 @@
 /* Keyframes for TileOverlay.jsx's particle effects (see overlays.js for
-   the catalog). CSS-driven rather than the rAF-computed-inline-styles
-   pattern the rest of this app's animations use (coin rain, evolution
-   shake/flash, etc.) — those are short, one-shot, choreographed
-   sequences that need per-frame JS control; these are continuous
-   ambient loops that can run on up to 16 tiles at once indefinitely, so
-   letting the browser's compositor drive them (no React re-renders, no
-   JS running at all once started) matters a lot more here. Per-particle
-   randomization (position/size/duration/drift) is computed once in JS
-   and applied as inline style overrides — see TileOverlay.jsx. */
+   the catalog — two render kinds, 'emoji' and 'sprite'). CSS-driven
+   rather than the rAF-computed-inline-styles pattern the rest of this
+   app's animations use (coin rain, evolution shake/flash, etc.) — those
+   are short, one-shot, choreographed sequences that need per-frame JS
+   control; these are continuous ambient loops that can run on up to 16
+   tiles at once indefinitely, so letting the browser's compositor drive
+   them (no React re-renders, no JS running at all once started) matters
+   a lot more here. Per-particle randomization (position/size/duration/
+   drift) is computed once in JS and applied as inline style overrides —
+   see TileOverlay.jsx. */
 
 /* translateY percentages resolve against the ELEMENT'S OWN box (a ~10-16px
    emoji span here), not the container it's falling through — using -15%/
@@ -78,4 +79,35 @@
 
 .overlay-particle-static {
   position: absolute;
+}
+
+/* Steps a sprite-sheet particle (see overlays.js's 'sprite' render kind)
+   through its frames by sliding background-position-x one frame-width
+   left per step, looping back to 0 each iteration — the classic CSS
+   sprite-sheet animation technique. --overlay-sprite-shift (set inline
+   per particle/swatch — see TileOverlay.jsx and TamadexToast.jsx's
+   OverlaySwatch) is the FULL sheet width at that element's own display
+   size (frames * displaySize), negative; animation-timing-function:
+   steps(frameCount) (set inline, since frame count varies per sheet) is
+   what makes each step land exactly on a frame boundary instead of
+   sliding smoothly between them. Unlike overlay-fall/overlay-float, this
+   doesn't move the particle's POSITION at all — these source sheets
+   already bake their own motion into the frames (e.g. rain streaks
+   falling WITHIN the loop), so the particle sits still and only its
+   sprite frame advances; see overlays.js's header comment. */
+@keyframes overlay-sprite-frame {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: var(--overlay-sprite-shift);
+  }
+}
+
+.overlay-particle-sprite {
+  position: absolute;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  animation-name: overlay-sprite-frame;
+  animation-iteration-count: infinite;
 }
