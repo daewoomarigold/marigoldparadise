@@ -86,6 +86,12 @@ create table public.students (
   -- shape/reasoning as owned_frame_colors/equipped_frame_color above.
   owned_overlays jsonb not null default '[]'::jsonb,
   equipped_overlay text,
+  -- Customization's third subcategory — see src/game/backgrounds.js. Same
+  -- shape/reasoning as owned_frame_colors/equipped_frame_color above,
+  -- except a background REPLACES the roster tile's default art outright
+  -- (tileAppearance.js's tileBgStyleFor) rather than accenting it.
+  owned_backgrounds jsonb not null default '[]'::jsonb,
+  equipped_background text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

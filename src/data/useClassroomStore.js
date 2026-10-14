@@ -60,6 +60,8 @@ function rowToStudent(row) {
     equippedFrameColor: row.equipped_frame_color ?? null, // colors the roster tile's border — see StudentGrid.jsx
     ownedOverlays: row.owned_overlays ?? [], // owned overlay ids — see src/game/overlays.js
     equippedOverlay: row.equipped_overlay ?? null, // particle effect animated over the roster tile — see TileOverlay.jsx
+    ownedBackgrounds: row.owned_backgrounds ?? [], // owned background ids — see src/game/backgrounds.js
+    equippedBackground: row.equipped_background ?? null, // replaces the roster tile's default art — see tileAppearance.js's tileBgStyleFor
   };
 }
 
@@ -538,6 +540,35 @@ export function useClassroomStore(session) {
     }
   }
 
+  // Customization's third subcategory — see src/game/backgrounds.js. Same
+  // shape/reasoning as buyFrameColor/buyOverlay above.
+  async function buyBackground(student, backgroundId, price) {
+    if (student.ownedBackgrounds.includes(backgroundId)) return;
+    if (student.gotchiPts < price) return;
+    const nextOwned = [...student.ownedBackgrounds, backgroundId];
+    const nextGotchiPts = student.gotchiPts - price;
+    patchStudent(setStudents, student.id, { ownedBackgrounds: nextOwned, gotchiPts: nextGotchiPts });
+    const { error: err } = await supabase
+      .from('students')
+      .update({ owned_backgrounds: nextOwned, gotchi_pts: nextGotchiPts })
+      .eq('id', student.id);
+    if (err) {
+      setError(err.message);
+      patchStudent(setStudents, student.id, { ownedBackgrounds: student.ownedBackgrounds, gotchiPts: student.gotchiPts });
+    }
+  }
+
+  // Same shape/reasoning as setEquippedFrameColor/setEquippedOverlay above.
+  async function setEquippedBackground(studentId, backgroundId) {
+    const prev = students.find((s) => s.id === studentId);
+    patchStudent(setStudents, studentId, { equippedBackground: backgroundId });
+    const { error: err } = await supabase.from('students').update({ equipped_background: backgroundId }).eq('id', studentId);
+    if (err) {
+      setError(err.message);
+      if (prev) patchStudent(setStudents, studentId, { equippedBackground: prev.equippedBackground });
+    }
+  }
+
   // Per-class seating — the whole { deskId: studentId } object each time
   // (see SeatingMap.jsx; every arrange-mode change builds the full next
   // object from the current one).
@@ -613,6 +644,8 @@ export function useClassroomStore(session) {
     setEquippedFrameColor,
     buyOverlay,
     setEquippedOverlay,
+    buyBackground,
+    setEquippedBackground,
   };
 }
 
