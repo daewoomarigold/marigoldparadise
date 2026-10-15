@@ -28,9 +28,10 @@ export function useAuth() {
         // exposing a dashboard that would just fail against RLS on every
         // request. Signing out here fires another onAuthStateChange event
         // with a null session, which this same function handles as a
-        // normal sign-out below — no separate cleanup needed.
+        // normal sign-out below — no separate cleanup needed. scope:
+        // 'local' — see signOut() below for why this isn't the default.
         setError(`${newSession.user.email} isn't authorized for this app.`);
-        supabase.auth.signOut();
+        supabase.auth.signOut({ scope: 'local' });
         return;
       }
       setError('');
@@ -68,23 +69,32 @@ export function useAuth() {
     });
   }
 
-  // Reloads the page once sign-out actually finishes, rather than just
-  // firing signOut() and leaving the SPA running — the bug this fixes:
-  // clicking "Sign in with Google" again right after Sign Out (easy to do,
-  // since the page re-renders to LoginScreen the instant local state
-  // clears, well before the signOut() network call has actually finished)
-  // could start a fresh signInWithOAuth() while the OLD signOut() was
-  // still in flight. Google often re-authenticates silently if the
-  // browser's still logged into that account, so the new sign-in can
-  // complete and redirect back FAST — fast enough to land before the
-  // stale signOut() call's own response arrives and clears the brand new
-  // session right back out, landing back on LoginScreen with no error
-  // (exactly what was reported — sign out, immediately try to sign back
-  // in, end up signed out again). A full reload after signOut() settles
-  // guarantees the next sign-in attempt starts from a clean page with no
-  // leftover in-flight request that could race it.
+  // { scope: 'local' } — NOT the default. supabase-js's signOut() defaults
+  // to scope:'global', which revokes the refresh token for the account's
+  // session EVERYWHERE, not just this browser. This app is routinely
+  // signed into the same one or two allowed accounts from multiple
+  // devices at once (the island's classroom display + a teacher's own
+  // laptop dashboard, say) — a global sign-out on one device would silently
+  // kill the other device's session too, the next time IT tried to
+  // refresh its access token. 'local' only clears this browser's own
+  // session, leaving any other device's sign-in untouched.
+  //
+  // Also reloads the page once sign-out actually finishes, rather than
+  // just firing signOut() and leaving the SPA running — the bug this part
+  // fixes: clicking "Sign in with Google" again right after Sign Out
+  // (easy to do, since the page re-renders to LoginScreen the instant
+  // local state clears, well before the signOut() network call has
+  // actually finished) could start a fresh signInWithOAuth() while the
+  // OLD signOut() was still in flight. Google often re-authenticates
+  // silently if the browser's still logged into that account, so the new
+  // sign-in can complete and redirect back FAST — fast enough to land
+  // before the stale signOut() call's own response arrives and clears the
+  // brand new session right back out, landing back on LoginScreen with no
+  // error. A full reload after signOut() settles guarantees the next
+  // sign-in attempt starts from a clean page with no leftover in-flight
+  // request that could race it.
   function signOut() {
-    supabase.auth.signOut().finally(() => window.location.reload());
+    supabase.auth.signOut({ scope: 'local' }).finally(() => window.location.reload());
   }
 
   return {
