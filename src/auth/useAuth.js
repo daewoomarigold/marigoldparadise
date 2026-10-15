@@ -68,8 +68,23 @@ export function useAuth() {
     });
   }
 
+  // Reloads the page once sign-out actually finishes, rather than just
+  // firing signOut() and leaving the SPA running — the bug this fixes:
+  // clicking "Sign in with Google" again right after Sign Out (easy to do,
+  // since the page re-renders to LoginScreen the instant local state
+  // clears, well before the signOut() network call has actually finished)
+  // could start a fresh signInWithOAuth() while the OLD signOut() was
+  // still in flight. Google often re-authenticates silently if the
+  // browser's still logged into that account, so the new sign-in can
+  // complete and redirect back FAST — fast enough to land before the
+  // stale signOut() call's own response arrives and clears the brand new
+  // session right back out, landing back on LoginScreen with no error
+  // (exactly what was reported — sign out, immediately try to sign back
+  // in, end up signed out again). A full reload after signOut() settles
+  // guarantees the next sign-in attempt starts from a clean page with no
+  // leftover in-flight request that could race it.
   function signOut() {
-    supabase.auth.signOut();
+    supabase.auth.signOut().finally(() => window.location.reload());
   }
 
   return {
